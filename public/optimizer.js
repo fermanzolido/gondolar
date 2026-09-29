@@ -1,7 +1,7 @@
 // Optimizador del plan de compra. Módulo puro (sin DOM) para poder testearlo en Node.
 //
 // input:
-//   items:  [{ ean, qty }]
+//   items:  [{ ean, qty, only? }]     only = id de la tienda que la persona eligió para ese producto
 //   prices: { [ean]: { [storeId]: offer|null|undefined } }   (offer.price = precio unitario)
 //   stores: [{ id, trip, mandatory }]   trip = costo de ir a esa tienda ($: nafta + tiempo)
 //                                        mandatory = voy sí o sí (su traslado no cuenta)
@@ -10,11 +10,13 @@
 (function (root) {
   function plan({ items, prices, stores }) {
     const n = stores.length;
-    const priceOf = (ean, i) => {
+    // `only`: tienda elegida para ese producto. Si está, solo cuenta el precio de esa tienda (y hay que ir a ella).
+    const priceOf = (ean, i, only) => {
+      if (only && stores[i].id !== only) return null;
       const o = prices[ean] && prices[ean][stores[i].id];
       return o && o.price > 0 ? o.price : null;
     };
-    const covered = items.filter((it) => stores.some((_, i) => priceOf(it.ean, i) != null));
+    const covered = items.filter((it) => stores.some((_, i) => priceOf(it.ean, i, it.only) != null));
     const uncovered = items.filter((it) => !covered.includes(it));
     const mandatoryMask = stores.reduce((m, s, i) => (s.mandatory ? m | (1 << i) : m), 0);
 
@@ -27,7 +29,7 @@
         let best = null;
         for (let i = 0; i < n; i++) {
           if (!(mask & (1 << i))) continue;
-          const p = priceOf(it.ean, i);
+          const p = priceOf(it.ean, i, it.only);
           if (p != null && (best == null || p < best.price)) best = { storeIdx: i, price: p };
         }
         if (!best) { missing++; continue; }

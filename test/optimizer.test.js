@@ -43,6 +43,25 @@ assert.equal(r.uncovered.length, 1);
 assert.equal(r.best.total, 100);
 assert.equal(r.singles[0].complete, true);
 
+// Tienda elegida por la persona: se compra ahí aunque sea más caro, y esa tienda entra al recorrido
+prices = { leche: { A: o(100), B: o(50) }, pan: { A: o(10), B: o(20) } };
+items = [{ ean: 'leche', qty: 1, only: 'A' }, { ean: 'pan', qty: 1 }];
+r = plan({ items, prices, stores: [S('A', 0), S('B', 0)] });
+assert.equal(r.best.assignment.leche.store, 'A'); // no en B, aunque B sea más barato
+assert.equal(r.best.assignment.leche.price, 100);
+assert.equal(r.best.assignment.pan.store, 'A');
+items = [{ ean: 'leche', qty: 1, only: 'B' }, { ean: 'pan', qty: 1 }];
+r = plan({ items, prices, stores: [S('A', 500), S('B', 500)] });
+assert.deepEqual(r.best.stores, ['B']); // B es obligatoria; sumar A por $10 de ahorro no conviene
+assert.equal(r.best.assignment.pan.store, 'B');
+r = plan({ items, prices, stores: [S('A', 0), S('B', 0)] });
+assert.deepEqual(r.best.stores, ['A', 'B']); // sin costo de viaje, el pan sí va donde es más barato
+assert.equal(r.best.assignment.leche.store, 'B');
+assert.equal(r.worth.find((w) => w.store === 'B').required, true);
+// tienda elegida que no está entre las activas: el producto queda sin cubrir
+r = plan({ items: [{ ean: 'leche', qty: 1, only: 'Z' }, { ean: 'pan', qty: 1 }], prices, stores: [S('A', 0), S('B', 0)] });
+assert.equal(r.uncovered.length, 1);
+
 // Carrito vacío
 r = plan({ items: [], prices: {}, stores: [S('A', 0)] });
 assert.equal(r.best, null);

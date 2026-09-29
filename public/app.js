@@ -35,7 +35,7 @@
 
   const state = {
     stores: [],
-    cart: load('cart', []).map(({ ean, name, brand, qty }) => ({ ean, name, brand, qty })), // sin fotos (también limpia listas viejas)
+    cart: load('cart', []).map(({ ean, name, brand, qty, store }) => ({ ean, name, brand, qty, ...(store ? { store } : {}) })), // sin fotos (también limpia listas viejas)
     settings: { ...DEFAULT_SETTINGS, ...load('settings', {}) },
     checked: load('checked', {}),             // "tienda|ean" -> true (ya lo puse en el carrito)
     prices: {},                               // ean -> tienda -> oferta { store, ean, price, url } | null (esa cadena no lo informa)
@@ -173,6 +173,9 @@
   }
   const cartQty = (ean) => (state.cart.find((i) => i.ean === ean) || {}).qty || 0;
   const itemByEan = (ean) => state.cart.find((i) => i.ean === ean);
+  // Tienda que la persona eligió para un producto; sin elección se compra donde sale más barato.
+  // Si esa tienda ya no está activa, la elección se ignora (queda guardada por si vuelve).
+  const chosenStore = (i) => (i && i.store && enabledStores().some((s) => s.id === i.store) ? i.store : undefined);
   const offerOf = (ean, id) => state.prices[ean]?.[id];
   const mk = (id, small) => { const s = storeById(id); return s ? `<span class="mk${small ? ' sm' : ''}" style="--c:${s.color}" title="${esc(s.name)}">${esc(sigla(s))}</span>` : ''; };
   const who = (id) => `${mk(id, true)}${esc(storeById(id).name)}`;
@@ -303,7 +306,7 @@
   // ---------- plan ----------
   function currentPlan() {
     const stores = enabledStores().map((s) => ({ id: s.id, trip: tripCost(s.id), mandatory: cfg(s.id).mandatory }));
-    return Optimizer.plan({ items: state.cart.map((i) => ({ ean: i.ean, qty: i.qty })), prices: state.prices, stores });
+    return Optimizer.plan({ items: state.cart.map((i) => ({ ean: i.ean, qty: i.qty, only: chosenStore(i) })), prices: state.prices, stores });
   }
   function planByStore(option) {
     const by = {};
@@ -370,13 +373,17 @@
     const have = stores.filter((s) => by[s.id]).map((s) => ({ s, o: by[s.id] })).sort((a, b) => a.o.price - b.o.price);
     const min = have.length ? have[0].o.price : 0, max = have.length ? have[have.length - 1].o.price : 0;
     const none = owners ? [] : stores.filter((s) => !by[s.id]);
+    const item = itemByEan(ean), pick = chosenStore(item);
     let html = have.map(({ s, o }, i) => {
+      const sel = pick === s.id;
+      const tip = sel ? `Elegiste comprarlo en ${s.name}. Tocá para volver al más barato.` : `${item ? 'Comprarlo en' : 'Agregar a la lista y comprarlo en'} ${s.name}`;
       const diff = o.price - min;
       const sub = i === 0 ? (have.length > 1 ? 'más barato' : '') : diff < 0.5 ? 'igual' : `+${fmt(diff)}`;
-      return `<li class="row${i === 0 ? ' best' : ''}">
+      return `<li class="row${i === 0 ? ' best' : ''}${sel ? ' chosen' : ''}">
         <a class="who" href="${esc(safeUrl(o.url))}" target="_blank" rel="noopener" title="Ir a la web de ${esc(s.name)}">${mk(s.id, true)}<span class="n">${esc(s.name)}</span></a>
         <span class="bar-track"><span class="bar-fill" style="width:${Math.max(6, (o.price / max) * 100).toFixed(1)}%"></span></span>
         <span class="amt"><b>${fmt(o.price)}</b><small>${sub}</small></span>
+        <button type="button" class="pick${sel ? ' on' : ''}" data-act="pick-store" data-ean="${esc(ean)}" data-store="${esc(s.id)}" aria-pressed="${sel}" aria-label="${esc(tip)}" title="${esc(tip)}">${ic(sel ? 'check' : 'plus')}</button>
       </li>`;
     }).join('');
     if (none.length) html += `<li class="row none"><span>No lo informa: ${none.map((s) => esc(s.name)).join(', ')}</span></li>`;
@@ -448,11 +455,11 @@
     const fc = $('#fCount'); if (fc) fc.textContent = groups.length === state.lastGroups.length ? `${groups.length} productos` : `${groups.length} de ${state.lastGroups.length} productos`;
     if (state.lastGroups.length && !groups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Ningún producto cumple los filtros</b>Probá con otro rango de precio o quitá alguna marca.<div style="margin-top:14px"><button class="btn sm" data-act="filters-clear">Limpiar filtros</button></div></div>'; return; }
     box.innerHTML = groups.map((g) => {
-      const q = cartQty(g.ean);
+      const q = cartQty(g.ean), at = chosenStore(itemByEan(g.ean));
       return `<article class="p" data-ean="${esc(g.ean)}">
         <div class="p-top"><div><div class="p-brand">${esc(g.brand)}</div><div class="p-name">${esc(g.name)}</div>${ownersFor(g.ean) ? '<span class="pill soft" style="margin-top:7px">Marca propia</span>' : ''}</div></div>
         <ul class="cmp">${cmpRows(g.ean)}</ul>
-        <div class="p-foot">${q ? `<span class="in">${ic('check')}En tu lista</span>${stepper(g.ean, q)}` : `<button class="btn primary block" data-act="add" data-ean="${esc(g.ean)}">${ic('plus')}Agregar a la lista</button>`}</div>
+        <div class="p-foot">${q ? `<span class="in">${ic('check')}En tu lista${at ? ` · en ${esc(storeById(at).name)}` : ''}</span>${stepper(g.ean, q)}` : `<button class="btn primary block" data-act="add" data-ean="${esc(g.ean)}">${ic('plus')}Agregar a la lista</button>`}</div>
       </article>`;
     }).join('');
   }
@@ -470,7 +477,7 @@
       groups.forEach((g) => { state.meta[g.ean] = { brand: g.brand, name: g.name }; derive(g.ean); });
       state.lastGroups = groups; state.searchRan = true; state.searching = false;
       state.filters.brands.clear(); state.filters.allBrands = false; // las marcas cambian con cada búsqueda
-      status.textContent = groups.length ? `Precios de ${provName(state.settings.prov)}. Primero los productos que están en más cadenas.` : '';
+      status.textContent = groups.length ? `Precios de ${provName(state.settings.prov)}. Primero los productos que están en más cadenas. Con el + de cada tienda lo elegís ahí; el botón verde lo agrega donde sale más barato.` : '';
       renderFilters(); renderResults(); renderSide(); renderDock();
     } catch (err) { state.searching = false; status.textContent = 'No pude buscar: ' + err.message; renderFilters(); renderResults(); }
   }
@@ -486,10 +493,10 @@
     const info = bestInfo();
     const rows = state.cart.map((i) => {
       const offers = enabledStores().map((s) => ({ s, o: offerOf(i.ean, s.id) })).filter((x) => x.o).sort((a, b) => a.o.price - b.o.price);
-      const c = offers[0];
+      const c = offers[0], f = chosenStore(i), fo = f && offerOf(i.ean, f);
       return `<li class="t-item"><div class="t-name" title="${esc(i.name)}">${esc(i.name)}</div>
         ${stepper(i.ean, i.qty)}
-        <div class="t-best">${c ? `Mejor: <b>${fmt(c.o.price)}</b> en ${esc(c.s.name)}` : state.loadingPrices ? 'Consultando…' : 'Sin precio'}</div></li>`;
+        <div class="t-best">${fo ? `En ${esc(storeById(f).name)}: <b>${fmt(fo.price)}</b>` : c ? `Mejor: <b>${fmt(c.o.price)}</b> en ${esc(c.s.name)}` : state.loadingPrices ? 'Consultando…' : 'Sin precio'}</div></li>`;
     }).join('');
     $('#side').innerHTML = `<div class="ticket">
       <div class="t-head"><span class="eyebrow">Tu lista</span><span class="mono xs mute">${n} ${n === 1 ? 'unidad' : 'unidades'}</span></div>
@@ -516,10 +523,11 @@
     renderResults(); renderSide(); renderDock();
     if (state.view === 'plan') renderPlanView();
   }
-  function addToCart(ean) {
+  function addToCart(ean, storeId) {
     const g = state.lastGroups.find((x) => x.ean === ean);
     const item = itemByEan(ean);
-    if (item) item.qty++; else if (g) state.cart.push({ ean, name: g.name, brand: g.brand, qty: 1 });
+    if (item) { item.qty++; if (storeId) item.store = storeId; }
+    else if (g) state.cart.push({ ean, name: g.name, brand: g.brand, qty: 1, ...(storeId ? { store: storeId } : {}) });
     ensurePrices([ean]);
     cartChanged();
   }
@@ -577,7 +585,7 @@
             return `<li class="r-line"><input class="cb" type="checkbox" data-ck="${esc(key)}" aria-label="Ya lo agregué: ${esc(itemByEan(l.ean).name)}" ${state.checked[key] ? 'checked' : ''}>
               <div class="nm">${esc(itemByEan(l.ean).name)}</div>
               <div class="pr">${fmt(l.price * l.qty)}${l.qty > 1 ? `<small>${l.qty} × ${fmt(l.price)}</small>` : ''}</div>
-              <div class="alt">${other ? `Otra opción: ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (${other.p >= l.price ? '+' : '−'}${fmt(Math.abs(other.p - l.price))})` : 'Solo la tiene esta tienda'}</div></li>`;
+              <div class="alt">${chosenStore(itemByEan(l.ean)) === id ? (other && other.p < l.price ? `Tu elección · más barato en ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (−${fmt(l.price - other.p)})` : 'Tu elección · además es el más barato') : other ? `Otra opción: ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (${other.p >= l.price ? '+' : '−'}${fmt(Math.abs(other.p - l.price))})` : 'Solo la tiene esta tienda'}</div></li>`;
           }).join('')}</ul>
           ${branchOf(id) ? `<div class="r-branch">${ic('pin')}<span><b>${esc(branchOf(id).address || branchOf(id).name)}</b><br>a ${kmText(branchOf(id).driveKm)} km, ${Math.round(branchOf(id).driveMin)} min en auto</span><a class="btn sm ghost" href="${esc(mapsLink(branchOf(id)))}" target="_blank" rel="noopener">Cómo llegar${ic('ext')}</a></div>` : ''}
           <div class="r-foot"><span class="trip">${cfg(id).mandatory ? 'Ya vas a ir, sin costo de viaje' : `Viaje: <span class="num">${fmt(tripCost(id))}</span>`}</span>
@@ -605,8 +613,14 @@
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tu lista</h2></div></div>${editList()}</section>
       <p class="foot-note">${sepaNote()}${rateNote() ? ' ' + esc(rateNote()) : ''}</p></div>`;
   }
+  // Selector "Comprar en": por defecto donde sale más barato, o la tienda que elijas
+  function buyIn(i) {
+    const opts = enabledStores().map((s) => ({ s, o: offerOf(i.ean, s.id) })).filter((x) => x.o).sort((a, b) => a.o.price - b.o.price);
+    const gone = i.store && !opts.some((x) => x.s.id === i.store);
+    return `<label class="buy-in"><span class="mute">Comprar en</span><select class="select sm" data-buy-store data-ean="${esc(i.ean)}" aria-label="Tienda donde comprar ${esc(i.name)}"><option value="">La más barata</option>${opts.map(({ s, o }) => `<option value="${esc(s.id)}"${i.store === s.id ? ' selected' : ''}>${esc(s.name)} · ${fmt(o.price)}</option>`).join('')}${gone ? `<option value="${esc(i.store)}" selected>${esc((storeById(i.store) || { name: i.store }).name)} (no disponible)</option>` : ''}</select></label>`;
+  }
   function editList() {
-    return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
+    return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}${buyIn(i)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
       <div style="margin-top:12px">${state.confirmClear ? `<span class="sm">¿Vaciar toda la lista?</span> <button class="link" data-act="clear-yes">Sí, vaciar</button> · <button class="link" data-act="clear-no">Cancelar</button>` : `<button class="link" data-act="clear">Vaciar lista</button>`}</div>`;
   }
 
@@ -781,6 +795,12 @@
       case 'home-cancel': state.editHome = false; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
       case 'branches-refresh': state.stores.forEach((s) => { cfg(s.id).manual = false; }); state.branches = { key: homeKey(), byStore: {} }; fetchBranches(true); return;
       case 'auto': { const c = cfg(el.dataset.store); c.manual = false; applyBranch(el.dataset.store); afterTripChange(); return; }
+      case 'pick-store': {
+        const sid = el.dataset.store, it = itemByEan(ean);
+        if (!it) { addToCart(ean, sid); return; }
+        if (it.store === sid) delete it.store; else it.store = sid;
+        break;
+      }
       case 'add': addToCart(ean); return;
       case 'inc': { const i = itemByEan(ean); if (i) i.qty++; break; }
       case 'dec': { const i = itemByEan(ean); if (i) { if (i.qty > 1) i.qty--; else state.cart = state.cart.filter((x) => x.ean !== ean); } break; }
@@ -805,6 +825,11 @@
     clearTimeout(fTimer); fTimer = setTimeout(renderResults, 200);
   });
   document.addEventListener('change', (e) => {
+    if (e.target.dataset && e.target.dataset.buyStore !== undefined) {
+      const it = itemByEan(e.target.dataset.ean);
+      if (it) { if (e.target.value) it.store = e.target.value; else delete it.store; cartChanged(); }
+      return;
+    }
     if (e.target.id === 'rateSel') { setCurrency('USD', e.target.value); return; }
     if (e.target.id === 'provSel') { setProvince(e.target.value).then(renderProvRow); return; }
     if (e.target.id === 'fSort') { state.filters.sort = e.target.value; renderFilters(); renderResults(); return; }

@@ -20,6 +20,9 @@ imprimís la lista dividida por tienda.
 - **Encuentra el mismo producto en todas** con el código de barras (EAN), así se compara exactamente lo mismo.
 - **Precios de tu provincia:** el precio de un mismo producto cambia según la zona (hasta 44% entre sucursales de una
   cadena). Se elige la provincia, o se completa sola al cargar tu ubicación.
+- **Elegís dónde comprar cada cosa:** por defecto el botón verde agrega el producto donde sale más barato, pero con el **+** de
+  cualquier tienda lo agregás para comprarlo ahí (o lo cambiás después con "Comprar en" en tu lista). El plan respeta tu
+  elección, suma esa tienda al recorrido y te muestra cuánto más barato estaría en otro lado.
 - **Filtros** por marca y precio, más orden por precio o por mayor diferencia entre tiendas. "Solo comparables" oculta las
   marcas propias, que solo se venden en su cadena (Carrefour Classic, Día, Coto…).
 - **Plan de compra:** prueba todas las combinaciones de tiendas y elige la de menor costo total (productos + viajes).
