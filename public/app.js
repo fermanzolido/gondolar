@@ -3,7 +3,10 @@
   const $ = (s, el = document) => el.querySelector(s);
   const moneyInt = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
   const moneyDec = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const fmt = (n) => (Number.isInteger(Math.round(n * 100) / 100) ? moneyInt : moneyDec).format(n).replace(/\s/g, '');
+  const moneyUsd = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtArs = (n) => (Number.isInteger(Math.round(n * 100) / 100) ? moneyInt : moneyDec).format(n).replace(/\s/g, '');
+  // Todos los importes de la pantalla salen de acá: en pesos, o convertidos con la cotización de dólar elegida.
+  const fmt = (n) => { const r = activeRate(); return r ? moneyUsd.format(n / r.sell).replace(/\s/g, '') : fmtArs(n); };
   const pct = (n) => (n * 100).toLocaleString('es-AR', { maximumFractionDigits: 1 }) + '%';
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const safeUrl = (u) => (/^https?:\/\//.test(u) ? u : '#');
@@ -45,6 +48,8 @@
     home: load('home', null),                 // { lat, lon, label } — solo vive en este navegador
     branches: load('branches', { key: '', byStore: {} }), // tienda -> sucursal más cercana | null (no hay) | undefined (sin buscar)
     locating: false, branchError: '', editHome: false, geoResults: [], geoMsg: '', geoBusy: false, geoQuery: '',
+    currency: (() => { const c = load('currency', {}); return { cur: c.cur === 'USD' ? 'USD' : 'ARS', rate: typeof c.rate === 'string' ? c.rate : 'blue' }; })(),
+    rates: null, ratesLoading: false, ratesError: '',   // { list: [{ id, label, group, buy, sell, at }], fetchedAt }
   };
   const persist = () => { save('cart', state.cart); save('settings', state.settings); };
 
@@ -200,6 +205,59 @@
     }
     if (batches.size) { state.pricesAt = new Date(); updateBarNote(); }
   }
+  // ---------- moneda ----------
+  function activeRate() {
+    if (state.currency.cur !== 'USD' || !state.rates) return null;
+    const list = state.rates.list;
+    return list.find((r) => r.id === state.currency.rate) || list.find((r) => r.id === 'oficial') || list[0] || null;
+  }
+  const rateTime = (at) => { const d = new Date(at); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : d.toLocaleDateString('es-AR', { day: 'numeric', month: 'short' }); };
+  // texto corto para avisar que los importes están convertidos (lista copiada y notas al pie)
+  const rateNote = () => { const r = activeRate(); return r ? `Importes en dólares, convertidos con el dólar ${r.group === 'banco' ? 'oficial de ' + r.label : r.label.toLowerCase()} a ${fmtArs(r.sell)} (precio de venta).` : ''; };
+  function renderCur() {
+    const usd = state.currency.cur === 'USD';
+    $('#cur').innerHTML = `<div class="seg" role="group" aria-label="Moneda">
+      <button type="button" data-cur="ARS" aria-pressed="${!usd}" title="Ver precios en pesos argentinos">ARS</button>
+      <button type="button" data-cur="USD" aria-pressed="${usd}" title="Ver precios en dólares">USD</button></div>`;
+    const bar = $('#curBar'); bar.hidden = !usd;
+    if (!usd) { bar.innerHTML = ''; return; }
+    const r = activeRate();
+    let body;
+    if (state.ratesLoading && !state.rates) body = '<span class="mute">Trayendo cotizaciones del dólar…</span>';
+    else if (!state.rates) body = `<span class="warn">${esc(state.ratesError || 'Sin cotizaciones.')} Se muestran pesos.</span><button type="button" class="link" data-act="rates-retry">Reintentar</button>`;
+    else {
+      const opt = (x) => `<option value="${esc(x.id)}"${r && x.id === r.id ? ' selected' : ''}>${esc(x.label)} · ${fmtArs(x.sell)}</option>`;
+      const gen = state.rates.list.filter((x) => x.group === 'general'), banks = state.rates.list.filter((x) => x.group === 'banco');
+      body = `<label class="fld-inline"><span class="eyebrow">Dólar</span><select id="rateSel" class="select" aria-label="Cotización del dólar">
+          <optgroup label="Cotizaciones">${gen.map(opt).join('')}</optgroup>${banks.length ? `<optgroup label="Bancos (oficial)">${banks.map(opt).join('')}</optgroup>` : ''}</select></label>
+        <span class="xs mute">Convertido al precio de venta${r ? ` · actualizado ${rateTime(r.at)}` : ''}. Valor de referencia.</span>
+        ${state.ratesError ? `<span class="xs warn">${esc(state.ratesError)}</span>` : ''}`;
+    }
+    bar.innerHTML = `<div class="curbar-in">${body}</div>`;
+  }
+  async function loadRates(force) {
+    if (state.ratesLoading || (!force && state.rates && Date.now() - state.rates.fetchedAt < 10 * 60e3)) return;
+    state.ratesLoading = true; state.ratesError = ''; renderCur();
+    try { state.rates = { ...(await api('/api/dolar')), fetchedAt: Date.now() }; }
+    catch { state.ratesError = state.rates ? 'No pude actualizar la cotización.' : 'No pude traer la cotización del dólar.'; }
+    finally { state.ratesLoading = false; }
+    renderCur(); refreshMoney();
+  }
+  function setCurrency(cur, rate) {
+    state.currency = { cur, rate: rate || state.currency.rate };
+    save('currency', state.currency);
+    renderCur(); refreshMoney();
+    if (cur === 'USD') loadRates();
+  }
+  // vuelve a dibujar todo lo que muestra importes
+  function refreshMoney() {
+    updateBarNote();
+    if (!state.stores.length) return;
+    renderFilters(); renderResults(); renderSide(); renderDock();
+    if (state.view === 'plan') renderPlanView();
+    if (state.view === 'trip') renderTrip();
+  }
+
   function updateBarNote() {
     $('#barNote').textContent = state.pricesAt ? 'Precios de las ' + state.pricesAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
   }
@@ -322,7 +380,7 @@
     f.brands.forEach((k) => { if (!brands.has(k)) f.brands.delete(k); });
     const shown = f.allBrands ? sorted : sorted.filter(([k], i) => i < 12 || f.brands.has(k));
     const prices = state.lastGroups.map((g) => (groupStats(g.ean) || {}).min).filter((n) => n != null);
-    const range = prices.length ? `${fmt(Math.min(...prices))} a ${fmt(Math.max(...prices))}` : '';
+    const range = prices.length ? `${fmtArs(Math.min(...prices))} a ${fmtArs(Math.max(...prices))} (en pesos)` : '';
     const active = f.brands.size || f.min !== '' || f.max !== '' || f.comparable || f.sort !== 'rel';
     box.innerHTML = `<div class="filters">
       <div class="f-row">
@@ -543,7 +601,7 @@
 
     box.innerHTML = `<div class="narrow">${head}${verdict}${missing}${opts}${receipts}${rank}${worth}
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tu lista</h2></div></div>${editList()}</section>
-      <p class="foot-note">Precios de las webs públicas de cada cadena, con la sucursal por defecto. Pueden diferir de tu sucursal. Las promos (2x1, 2da al 70%, tarjeta) no se descuentan del total.</p></div>`;
+      <p class="foot-note">Precios de las webs públicas de cada cadena, con la sucursal por defecto. Pueden diferir de tu sucursal. Las promos (2x1, 2da al 70%, tarjeta) no se descuentan del total.${rateNote() ? ' ' + esc(rateNote()) : ''}</p></div>`;
   }
   function editList() {
     return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
@@ -559,7 +617,8 @@
   }
   function summaryLines({ plan, chosen }) {
     const bestSingle = plan.singles.filter((s) => s.complete).sort((a, b) => a.total - b.total)[0];
-    const out = [`Total estimado: ${fmt(chosen.total)} (productos ${fmt(chosen.itemsCost)} + viajes ${fmt(chosen.tripCost)})`];
+    const out = rateNote() ? [rateNote()] : [];
+    out.push(`Total estimado: ${fmt(chosen.total)} (productos ${fmt(chosen.itemsCost)} + viajes ${fmt(chosen.tripCost)})`);
     if (bestSingle && chosen.k > 1) {
       const save = bestSingle.total - chosen.total;
       out.push(save > 0 ? `Ahorro frente a comprar todo en ${storeById(bestSingle.store).name}: ${fmt(save)} (${pct(save / bestSingle.total)}), con los viajes incluidos.` : `Comprar todo en ${storeById(bestSingle.store).name} costaría ${fmt(bestSingle.total)}.`);
@@ -648,7 +707,7 @@
     const g = state.settings;
     $('#v-trip').innerHTML = `<div class="narrow">
       <h1 class="h1" style="font-size:clamp(28px,4vw,38px)">Viaje y tiendas</h1>
-      <p class="lede">Con esto calculamos cuánto te cuesta ir a cada tienda. Si el viaje es caro, la app te va a recomendar juntar todo en menos lugares.</p>
+      <p class="lede">Con esto calculamos cuánto te cuesta ir a cada tienda. Si el viaje es caro, la app te va a recomendar juntar todo en menos lugares.${activeRate() ? ' Estos valores los cargás en pesos.' : ''}</p>
       ${locationCard()}
       ${state.home && !state.editHome ? `<section class="sect"><div class="map-wrap"><div id="map" role="img" aria-label="Mapa con tu ubicación y las sucursales más cercanas"></div></div>${state.branchError ? `<p class="sm" style="color:var(--warn);margin:10px 0 0">${esc(state.branchError)}</p>` : ''}</section>` : ''}
       <section class="sect"><div class="card"><h2 class="h2" style="margin-bottom:14px">Tu auto y tu tiempo</h2>
@@ -700,6 +759,8 @@
     if (sug) { runSearch(sug.dataset.suggest); return; }
     const br = e.target.closest('[data-brand]');
     if (br) { const s = state.filters.brands, k = br.dataset.brand; if (s.has(k)) s.delete(k); else s.add(k); renderFilters(); renderResults(); return; }
+    const cb = e.target.closest('[data-cur]');
+    if (cb) { setCurrency(cb.dataset.cur); return; }
     const tog = e.target.closest('[data-store-toggle]');
     if (tog) {
       const c = cfg(tog.dataset.storeToggle); c.enabled = !c.enabled; persist();
@@ -712,6 +773,7 @@
     switch (el.dataset.act) {
       case 'filters-clear': Object.assign(state.filters, { min: '', max: '', sort: 'rel', comparable: false }); state.filters.brands.clear(); renderFilters(); renderResults(); return;
       case 'brands-more': state.filters.allBrands = !state.filters.allBrands; renderFilters(); return;
+      case 'rates-retry': loadRates(true); return;
       case 'gps': useGps(); return;
       case 'geo-pick': { const r = state.geoResults[Number(el.dataset.i)]; if (r) setHome({ lat: r.lat, lon: r.lon, label: r.label }); return; }
       case 'home-change': state.editHome = true; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
@@ -743,6 +805,7 @@
     clearTimeout(fTimer); fTimer = setTimeout(renderResults, 200);
   });
   document.addEventListener('change', (e) => {
+    if (e.target.id === 'rateSel') { setCurrency('USD', e.target.value); return; }
     if (e.target.id === 'fSort') { state.filters.sort = e.target.value; renderFilters(); renderResults(); return; }
     if (e.target.id === 'fComp') { state.filters.comparable = e.target.checked; renderFilters(); renderResults(); return; }
     const k = e.target.dataset && e.target.dataset.ck;
@@ -764,7 +827,8 @@
     try { state.stores = await api('/api/stores'); }
     catch { const b = $('#banner'); b.hidden = false; b.textContent = 'No me puedo conectar con el servidor local. Abrí "iniciar.bat" o corré "npm start".'; return; }
     state.cart.forEach((i) => { state.meta[i.ean] = { brand: i.brand, name: i.name }; });
-    buildSearch(); updateCount(); updateBarNote();
+    buildSearch(); updateCount(); updateBarNote(); renderCur();
+    if (state.currency.cur === 'USD') loadRates();
     go(state.cart.length ? 'plan' : 'search');
     renderResults();
     fetchBranches(); // completa las sucursales de tiendas que todavía no se buscaron

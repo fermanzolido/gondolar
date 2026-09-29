@@ -30,12 +30,14 @@
         <span>gondol<b>ar</b></span>
       </a>
       <nav class="nav" aria-label="Secciones">
-        <button data-go="search"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Buscar</button>
-        <button data-go="plan"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg>Mi compra <span id="cartCount" class="count" data-n="0"></span></button>
-        <button data-go="trip"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/></svg><span>Viaje<span class="lg"> y tiendas</span></span></button>
+        <button data-go="search" aria-label="Buscar"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span class="lb">Buscar</span></button>
+        <button data-go="plan" aria-label="Mi compra"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/></svg><span class="lb">Mi compra</span> <span id="cartCount" class="count" data-n="0"></span></button>
+        <button data-go="trip" aria-label="Viaje y tiendas"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h7a3 3 0 0 0 0-6H9a3 3 0 0 1 0-6h7"/></svg><span class="lb">Viaje<span class="lg"> y tiendas</span></span></button>
       </nav>
       <span id="barNote" class="bar-note mute"></span>
+      <div class="cur" id="cur"></div>
     </div>
+    <div class="curbar" id="curBar" hidden></div>
   </header>
 
   <div class="app no-print">

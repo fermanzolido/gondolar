@@ -39,6 +39,7 @@
   <h2 id="origen">5. De dónde salen los datos</h2>
   <ul>
     <li><b>Precios y productos:</b> consultas puntuales a los catálogos públicos de cada cadena. Se hacen a pedido de quien usa la herramienta, con volumen bajo, guardando resultados unos minutos para no repetir pedidos, y la herramienta se identifica con su nombre (<i>Gondolar</i>) y la dirección de este proyecto.</li>
+    <li><b>Cotizaciones del dólar:</b> las trae el servidor de Gondolar (no tu navegador) desde <a href="https://dolarapi.com" target="_blank" rel="noopener">dolarapi.com</a> (oficial, blue, MEP, contado con liqui, cripto y tarjeta) y <a href="https://criptoya.com" target="_blank" rel="noopener">criptoya.com</a> (cotización oficial de cada banco), y se guardan unos minutos. Esos servicios no reciben ningún dato tuyo. Son valores de referencia, pueden no coincidir con el precio al que realmente podés operar y no constituyen asesoramiento financiero.</li>
     <li><b>Sucursales, direcciones y rutas:</b> datos abiertos de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (© colaboradores de OpenStreetMap, licencia ODbL), a través de los servicios Nominatim, Overpass y OSRM. OpenStreetMap puede no tener alguna sucursal o tener datos desactualizados.</li>
   </ul>
 
@@ -99,6 +100,7 @@
       <tr><td><code>settings</code></td><td>Tus ajustes: nafta, consumo, tiendas elegidas, km y minutos.</td><td>Hasta que los borres</td></tr>
       <tr><td><code>checked</code></td><td>Los productos que fuiste tildando al comprar.</td><td>Hasta que los borres</td></tr>
       <tr><td><code>home</code>, <code>branches</code></td><td>Tu ubicación (opcional) y las sucursales más cercanas calculadas.</td><td>Hasta que los borres</td></tr>
+      <tr><td><code>currency</code></td><td>La moneda en que ves los precios (pesos o dólares) y la cotización elegida.</td><td>Hasta que la borres</td></tr>
       <tr><td><code>consent</code></td><td>Tu elección de privacidad.</td><td>12 meses</td></tr>
     </tbody>
   </table></div>

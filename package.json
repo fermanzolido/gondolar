@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/optimizer.test.js && node test/worker.test.mjs",
+    "test": "node test/optimizer.test.js && node test/rates.test.js && node test/worker.test.mjs",
     "deploy:api": "wrangler deploy"
   },
   "engines": { "node": ">=18" },

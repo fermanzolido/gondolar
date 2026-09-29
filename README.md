@@ -18,6 +18,9 @@ cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al 
   Muestra la mejor opción para ir a 1, 2 o 3 tiendas y si **vale la pena** cada parada extra.
 - **Tu ubicación:** con tu dirección o el GPS busca la sucursal más cercana de cada cadena, calcula km y minutos en auto y
   completa el costo del viaje solo. Muestra un mapa y un botón "Cómo llegar".
+- **Pesos o dólares:** el selector `ARS | USD` convierte todos los importes con la cotización que elijas: oficial, blue, MEP,
+  contado con liqui, cripto, tarjeta o la oficial de cada banco. Las cotizaciones vienen de dolarapi.com y criptoya.com a
+  través de la API (`/api/dolar`), son de referencia, y los bancos sin actualizar se ocultan.
 - **Lista para el súper:** tickets por tienda con casilleros para ir tildando, impresión y copiado para WhatsApp.
 - **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; las tipografías y el mapa de terceros
   se cargan únicamente si lo permitís. No muestra fotos de productos ni logos de las cadenas.

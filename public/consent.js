@@ -12,7 +12,7 @@
   const FONTS = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400..700&display=swap';
   const LEAFLET_CSS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css';
   const LEAFLET_JS = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js';
-  const WIPE_KEYS = ['cart', 'settings', 'checked', 'home', 'branches', KEY];
+  const WIPE_KEYS = ['cart', 'settings', 'checked', 'home', 'branches', 'currency', KEY];
 
   const read = () => {
     try { const c = JSON.parse(localStorage.getItem(KEY)); if (c && c.v === VERSION && Date.now() - c.at < MAX_AGE) return c; } catch { /* sin acceso */ }
