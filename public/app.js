@@ -244,7 +244,7 @@
   const SUGGESTIONS = ['leche entera', 'yerba mate', 'aceite de girasol', 'fideos spaghetti', 'coca cola 2,25'];
   function buildSearch() {
     $('#v-search').innerHTML = `
-      <h1 class="h1">Averiguá dónde<br>conviene comprar.</h1>
+      <h1 class="h1">Mirá todas las<br>góndolas en una.</h1>
       <p class="lede">Armá tu lista y te decimos en qué súper llevar cada cosa, con el costo de ir hasta cada uno incluido.</p>
       <form id="searchForm" class="search-form" role="search">
         <div class="field">${ic('search')}<input id="q" type="search" placeholder="Leche, yerba, aceite, coca cola 2,25…" autocomplete="off" required minlength="2" aria-label="Buscar producto"></div>

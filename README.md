@@ -1,4 +1,4 @@
-# Cuánto Sale
+# Gondolar
 
 Comparador de precios de supermercados argentinos. Armás tu lista, y la app te dice **en qué súper conviene comprar cada
 cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al final imprimís la lista dividida por tienda.
@@ -85,7 +85,7 @@ los precios en tandas de hasta 24 combinaciones producto x tienda.
 ## Uso responsable de los datos
 
 Las consultas a las cadenas se hacen a pedido de quien usa la herramienta, con volumen bajo y guardando resultados unos
-minutos. La herramienta se identifica con su nombre (`CuantoSale`) y la dirección de este repositorio; no finge ser un
+minutos. La herramienta se identifica con su nombre (`Gondolar`) y la dirección de este repositorio; no finge ser un
 navegador. Si sos titular de una marca, imagen o sitio y querés que algo cambie o se quite, abrí un
 [issue](https://github.com/fermanzolido/cuanto-sale/issues).
 

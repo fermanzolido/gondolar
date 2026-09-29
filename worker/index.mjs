@@ -19,7 +19,7 @@ export default {
     const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: { ...cors, 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
-    if (!url.pathname.startsWith('/api/')) return new Response('Cuánto Sale API', { headers: { ...cors, 'content-type': 'text/plain; charset=utf-8' } });
+    if (!url.pathname.startsWith('/api/')) return new Response('Gondolar API', { headers: { ...cors, 'content-type': 'text/plain; charset=utf-8' } });
     if (allowed !== '*' && origin && origin !== allowed) return reply(403, { error: 'Origen no permitido' });
 
     try {

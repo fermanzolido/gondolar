@@ -67,7 +67,7 @@
       const cur = current || {};
       const custom = mode === 'prefs';
       box.innerHTML = `<h2 id="c-title">Tu privacidad</h2>
-        <p>Cuánto Sale guarda tu lista, tus ajustes y tu ubicación <b>solo en este navegador</b>. Las tipografías, el mapa y las fotos se piden a otros servidores, que ven tu dirección IP. Vos elegís cuáles permitir; la app funciona igual sin ninguno. <a href="legal.html#privacidad">Más información</a></p>
+        <p>Gondolar guarda tu lista, tus ajustes y tu ubicación <b>solo en este navegador</b>. Las tipografías, el mapa y las fotos se piden a otros servidores, que ven tu dirección IP. Vos elegís cuáles permitir; la app funciona igual sin ninguno. <a href="legal.html#privacidad">Más información</a></p>
         <div class="c-opts" ${custom ? '' : 'hidden'}>
           <div class="c-opt fixed"><span class="c-t"><b>Necesarias</b><small>Guardar tu lista, ajustes, ubicación y esta elección en tu navegador. Siempre activas.</small></span><span class="pill soft">Activas</span></div>
           ${sw('fonts', 'Tipografías', 'Se piden a Google Fonts (Google).', cur.fonts)}
