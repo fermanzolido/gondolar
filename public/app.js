@@ -28,7 +28,8 @@
   const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 
   // ---------- persistencia ----------
-  const DEFAULT_SETTINGS = { nafta: 1700, consumo: 10, horaValor: 3000, compraMin: 20, stores: {} };
+  const DEFAULT_SETTINGS = { nafta: 1700, consumo: 10, horaValor: 3000, compraMin: 20, prov: 'AR-C', stores: {} };
+  const BRANCH_KEY = 'branches2'; // sucursales oficiales de SEPA (las de antes venían de OpenStreetMap y ya no se usan)
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* modo privado */ } };
 
@@ -37,16 +38,17 @@
     cart: load('cart', []).map(({ ean, name, brand, qty }) => ({ ean, name, brand, qty })), // sin fotos (también limpia listas viejas)
     settings: { ...DEFAULT_SETTINGS, ...load('settings', {}) },
     checked: load('checked', {}),             // "tienda|ean" -> true (ya lo puse en el carrito)
-    prices: {},                               // ean -> tienda -> oferta | null | undefined (sin consultar)
-    failed: new Set(),
+    prices: {},                               // ean -> tienda -> oferta { store, ean, price, url } | null (esa cadena no lo informa)
+    data: null,                               // meta.json de los datos de SEPA (fecha, cadenas, provincias)
+    table: null,                              // precios de la provincia elegida: ean -> [precio por cadena]
+    dataError: '',
     view: 'search', selectedK: null,
     filters: { brands: new Set(), min: '', max: '', sort: 'rel', comparable: false, allBrands: false },
     meta: {},                                 // ean -> { brand, name } (para detectar marca propia)
-    asked: new Set(),                         // eans ya consultados en todas las tiendas que corresponden
-    pricesAt: null, loadingPrices: false, searching: false,
+    loadingPrices: false, searching: false,
     lastGroups: [], searchRan: false, confirmClear: false,
-    home: load('home', null),                 // { lat, lon, label } — solo vive en este navegador
-    branches: load('branches', { key: '', byStore: {} }), // tienda -> sucursal más cercana | null (no hay) | undefined (sin buscar)
+    home: load('home', null),                 // { lat, lon, label, prov } — solo vive en este navegador
+    branches: load(BRANCH_KEY, { key: '', byStore: {} }), // tienda -> sucursal más cercana | null (no hay) | undefined (sin buscar)
     locating: false, branchError: '', editHome: false, geoResults: [], geoMsg: '', geoBusy: false, geoQuery: '',
     currency: (() => { const c = load('currency', {}); return { cur: c.cur === 'USD' ? 'USD' : 'ARS', rate: typeof c.rate === 'string' ? c.rate : 'blue' }; })(),
     rates: null, ratesLoading: false, ratesError: '',   // { list: [{ id, label, group, buy, sell, at }], fetchedAt }
@@ -75,6 +77,7 @@
   const homeKey = () => (state.home ? `${state.home.lat.toFixed(3)},${state.home.lon.toFixed(3)}` : '');
   const shortLabel = (l) => String(l || '').split(',').slice(0, 3).join(',').trim();
   const kmText = (n) => n.toLocaleString('es-AR', { maximumFractionDigits: 1 });
+  const MAX_BRANCH_KM = 100; // más lejos que esto no se propone ninguna sucursal
   const branchOf = (id) => (state.home && state.branches.key === homeKey() ? state.branches.byStore[id] : undefined);
   const mapsLink = (b) => `https://www.google.com/maps/dir/?api=1&origin=${state.home.lat},${state.home.lon}&destination=${b.lat},${b.lon}&travelmode=driving`;
 
@@ -97,17 +100,28 @@
     if (!need.length) { need.forEach(applyBranch); return; }
     state.locating = true; state.branchError = ''; if (state.view === 'trip') renderTrip();
     try {
-      const { branches } = await api('/api/nearby', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lat: state.home.lat, lon: state.home.lon, stores: need }) });
-      Object.assign(state.branches.byStore, branches);
+      // 1) las sucursales más cercanas de cada cadena salen de los datos oficiales, sin pedirle nada a ningún servidor
+      const near = await Data.nearestBranches({ lat: state.home.lat, lon: state.home.lon }, need, 3);
+      const cands = need.flatMap((id) => near[id].filter((b) => b.straightKm <= MAX_BRANCH_KM).map((b) => ({ id, ...b })));
+      // 2) solo la distancia por calle se calcula con el servicio de rutas (con la ubicación de casa redondeada)
+      let routes;
+      try { routes = (await api('/api/route', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lat: state.home.lat, lon: state.home.lon, candidates: cands.map((c) => ({ lat: c.lat, lon: c.lon })) }) })).routes; }
+      catch { routes = cands.map((c) => ({ driveKm: +(c.straightKm * 1.35).toFixed(2), driveMin: +((c.straightKm * 1.35 / 28) * 60).toFixed(1), estimated: true })); }
+      need.forEach((id) => {
+        const mine = cands.map((c, i) => ({ ...c, ...routes[i] })).filter((c) => c.id === id).sort((a, b) => a.driveMin - b.driveMin);
+        const b = mine[0];
+        state.branches.byStore[id] = b ? { name: b.name, address: [b.address, b.localidad].filter(Boolean).join(', '), lat: b.lat, lon: b.lon, straightKm: +b.straightKm.toFixed(2), driveKm: b.driveKm, driveMin: b.driveMin, estimated: b.estimated } : null;
+      });
       state.stores.forEach((s) => applyBranch(s.id));
-      save('branches', state.branches);
+      save(BRANCH_KEY, state.branches);
     } catch (e) { state.branchError = 'No pude buscar las sucursales (' + e.message + '). Podés cargar los km a mano.'; }
     state.locating = false;
     afterTripChange();
   }
   function setHome(h) {
     state.home = h; save('home', h);
-    state.branches = { key: homeKey(), byStore: {} }; save('branches', state.branches);
+    if (h.prov) setProvince(h.prov); // los precios cambian según la provincia
+    state.branches = { key: homeKey(), byStore: {} }; save(BRANCH_KEY, state.branches);
     state.stores.forEach((s) => { cfg(s.id).manual = false; });
     state.editHome = false; state.geoResults = []; state.geoMsg = '';
     persist(); afterTripChange();
@@ -126,7 +140,14 @@
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const h = { lat: pos.coords.latitude, lon: pos.coords.longitude, label: 'Tu ubicación (GPS)' };
       state.geoBusy = false; setHome(h);
-      try { const r = await api(`/api/reverse?lat=${h.lat}&lon=${h.lon}`); if (r && r.label && state.home === h) { h.label = r.label; save('home', h); if (state.view === 'trip') renderTrip(); } } catch { /* queda "GPS" */ }
+      try {
+        const r = await api(`/api/reverse?lat=${h.lat}&lon=${h.lon}`);
+        if (r && r.label && state.home === h) {
+          h.label = r.label; if (r.prov) h.prov = r.prov; save('home', h);
+          if (r.prov) setProvince(r.prov);
+          if (state.view === 'trip') renderTrip();
+        }
+      } catch { /* queda "GPS" */ }
     }, (err) => {
       state.geoBusy = false;
       state.geoMsg = err.code === 1 ? 'No diste permiso de ubicación. Habilitalo en el navegador o escribí tu dirección.' : 'No pude obtener tu ubicación. Escribí tu dirección.';
@@ -155,55 +176,53 @@
 
   // ---------- red ----------
   const API_BASE = ((window.CONFIG && window.CONFIG.API_BASE) || '').replace(/\/+$/, '');
-  const PRICE_PAIRS = 24; // máximo de combinaciones producto x tienda por pedido (límite del plan gratis de Cloudflare)
   async function api(url, opts) {
     const res = await fetch(API_BASE + url, opts);
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || 'Error ' + res.status);
     return data;
   }
-  function mergePrices(prices) {
-    for (const [ean, byStore] of Object.entries(prices)) state.prices[ean] = Object.assign(state.prices[ean] || {}, byStore);
-  }
-  function noteFailures(errors) {
-    Object.keys(errors || {}).forEach((id) => state.failed.add(id));
-    const names = [...state.failed].map((id) => (storeById(id) || {}).name || id);
-    const b = $('#banner');
-    b.hidden = !names.length;
-    b.textContent = names.length ? `No pude consultar ${names.join(', ')}. Sus precios pueden faltar; probá de nuevo en un rato.` : '';
-  }
-  // Tiendas donde tiene sentido buscar un producto (marca propia => solo su cadena)
-  const storesFor = (ean) => { const o = ownersFor(ean); const all = enabledStores().map((s) => s.id); return o ? all.filter((id) => o.includes(id)) : all; };
-  const needsFetch = (ean) => !state.asked.has(ean) && storesFor(ean).some((id) => state.prices[ean]?.[id] === undefined);
 
-  async function fetchMissing(eans, { force = false } = {}) {
-    if (!enabledStores().length) return;
-    if (force) state.failed.clear();
-    const batches = new Map(); // "tiendas" -> eans que se consultan en esas tiendas
-    for (const ean of eans) {
-      const cur = state.prices[ean] || (state.prices[ean] = {});
-      const stores = storesFor(ean);
-      enabledStores().forEach((s) => { if (!stores.includes(s.id)) cur[s.id] = null; }); // marca propia: no está en las otras
-      if (force) { stores.forEach((id) => { delete cur[id]; }); state.asked.delete(ean); }
-      if (!stores.some((id) => cur[id] === undefined)) { state.asked.add(ean); continue; }
-      const key = stores.join(',');
-      if (!batches.has(key)) batches.set(key, { stores, eans: [] });
-      batches.get(key).eans.push(ean);
+  // ---------- precios: datos abiertos de SEPA ----------
+  const provinces = () => (state.data ? state.data.provincias : {});
+  const provName = (p) => (provinces()[p] ? provinces()[p].nombre : p);
+  const dataDate = () => (state.data ? new Date(state.data.fecha + 'T12:00:00') : null);
+  const fmtDate = (d) => d.toLocaleDateString('es-AR', { day: 'numeric', month: 'numeric', year: 'numeric' });
+
+  // Precio de un producto en cada cadena, según la provincia elegida (mediana de las sucursales de esa provincia).
+  function derive(ean) {
+    const row = state.table && state.table[ean];
+    const cur = state.prices[ean] = {};
+    state.stores.forEach((s, i) => { const p = row && row[i]; cur[s.id] = p ? { store: s.id, ean, price: p, url: s.web } : null; });
+  }
+  const deriveAll = () => { state.prices = {}; [...state.cart.map((i) => i.ean), ...state.lastGroups.map((g) => g.ean)].forEach(derive); };
+
+  async function loadTable() {
+    try {
+      state.table = await Data.prices(state.settings.prov);
+      state.dataError = '';
+    } catch (e) {
+      state.table = null; state.dataError = 'No pude cargar los precios de ' + provName(state.settings.prov) + ' (' + e.message + ').';
     }
-    for (const { stores, eans: list } of batches.values()) {
-      try {
-        const size = Math.max(1, Math.floor(PRICE_PAIRS / stores.length));
-        const chunks = [];
-        for (let i = 0; i < list.length; i += size) chunks.push(list.slice(i, i + size));
-        for (let i = 0; i < chunks.length; i += 3) { // hasta 3 pedidos en paralelo
-          await Promise.all(chunks.slice(i, i + 3).map(async (eans) => {
-            const { prices, errors } = await api('/api/prices', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ eans, stores }) });
-            mergePrices(prices); noteFailures(errors);
-          }));
-        }
-      } finally { list.forEach((e) => state.asked.add(e)); }
-    }
-    if (batches.size) { state.pricesAt = new Date(); updateBarNote(); }
+    const b = $('#banner'); b.hidden = !state.dataError; b.textContent = state.dataError;
+    deriveAll();
+  }
+  // cambia la provincia de los precios (a mano o desde la ubicación) y vuelve a dibujar lo que muestra importes
+  async function setProvince(prov) {
+    if (!provinces()[prov] || state.settings.prov === prov) return;
+    state.settings.prov = prov; persist();
+    await loadTable();
+    state.selectedK = null;
+    refreshMoney();
+  }
+  // deja cargados los precios de los productos que se muestran o están en la lista
+  function ensurePrices(eans) { eans.forEach((e) => { if (!state.prices[e]) derive(e); }); }
+  async function ensureCartPrices() {
+    if (!state.cart.length) return;
+    if (!state.table) { state.loadingPrices = true; renderPlanView(); await loadTable(); state.loadingPrices = false; }
+    ensurePrices(state.cart.map((i) => i.ean));
+    renderSide(); renderDock();
+    if (state.view === 'plan') renderPlanView();
   }
   // ---------- moneda ----------
   function activeRate() {
@@ -259,7 +278,8 @@
   }
 
   function updateBarNote() {
-    $('#barNote').textContent = state.pricesAt ? 'Precios de las ' + state.pricesAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false }) : '';
+    const d = dataDate();
+    $('#barNote').textContent = d ? 'Precios oficiales del ' + fmtDate(d) : '';
   }
 
   // ---------- plan ----------
@@ -274,12 +294,6 @@
     Object.values(by).forEach((l) => l.sort((a, b) => itemByEan(a.ean).name.localeCompare(itemByEan(b.ean).name)));
     return by;
   }
-  // Abre la web de la tienda con el carrito armado (VTEX). El pago lo hace el usuario.
-  function cartLink(store, lines) {
-    if (store.kind !== 'vtex') return null;
-    const parts = lines.map(({ ean, qty }) => { const o = offerOf(ean, store.id); return o && o.sku ? `sku=${o.sku}&qty=${qty}&seller=${o.seller || 1}` : null; }).filter(Boolean);
-    return parts.length ? `${store.base}/checkout/cart/add?${parts.join('&')}&sc=1` : null;
-  }
   const chosenOption = (plan) => plan.options.find((o) => o.k === state.selectedK) || plan.best;
 
   // ---------- navegación ----------
@@ -289,7 +303,7 @@
     ['search', 'plan', 'trip'].forEach((v) => { $('#v-' + v).hidden = v !== view; });
     document.querySelectorAll('.nav button').forEach((b) => { if (b.dataset.go === view) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); });
     window.scrollTo(0, 0);
-    if (view === 'plan') { renderPlanView(); refreshCartPrices(); }
+    if (view === 'plan') { renderPlanView(); ensureCartPrices(); }
     if (view === 'trip') renderTrip();
     renderSide(); renderDock();
   }
@@ -308,6 +322,7 @@
         <div class="field">${ic('search')}<input id="q" type="search" placeholder="Leche, yerba, aceite, coca cola 2,25…" autocomplete="off" required minlength="2" aria-label="Buscar producto"></div>
         <button class="btn primary" type="submit"><span>Buscar</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS.search}</svg></button>
       </form>
+      <div class="chips-row" id="provRow"></div>
       <div class="chips-row" id="storeChips"></div>
       <div class="chips-row" id="suggest">
         <span class="eyebrow">Probá con</span>${SUGGESTIONS.map((s) => `<button type="button" class="chip txt" data-suggest="${esc(s)}">${esc(s)}</button>`).join('')}
@@ -315,8 +330,15 @@
       <div class="status" id="searchStatus" aria-live="polite"></div>
       <div id="filters"></div>
       <div class="results" id="results"></div>`;
-    renderStoreChips();
+    renderProvRow(); renderStoreChips();
     $('#searchForm').addEventListener('submit', (e) => { e.preventDefault(); runSearch($('#q').value.trim()); });
+  }
+  // Los precios cambian según la zona: se elige la provincia (se completa sola al cargar tu ubicación).
+  function renderProvRow() {
+    const box = $('#provRow'); if (!box) return;
+    const opts = Object.entries(provinces()).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
+    box.innerHTML = `<span class="eyebrow">Precios de</span><select id="provSel" class="select" aria-label="Provincia de los precios">${opts.map(([code, p]) => `<option value="${code}"${code === state.settings.prov ? ' selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select>
+      <span class="xs mute">Datos oficiales de SEPA. ${state.home && state.home.prov === state.settings.prov ? 'Tomada de tu ubicación.' : 'Cambiá la provincia si comprás en otra.'}</span>`;
   }
   function renderStoreChips() {
     $('#storeChips').innerHTML = `<span class="eyebrow">Comparar en</span>` + state.stores.map((s) =>
@@ -327,25 +349,19 @@
     const by = state.prices[ean] || {};
     const owners = ownersFor(ean);
     const stores = enabledStores().filter((s) => !owners || owners.includes(s.id));
-    const asked = state.asked.has(ean);
     const have = stores.filter((s) => by[s.id]).map((s) => ({ s, o: by[s.id] })).sort((a, b) => a.o.price - b.o.price);
     const min = have.length ? have[0].o.price : 0, max = have.length ? have[have.length - 1].o.price : 0;
-    const pending = stores.filter((s) => by[s.id] === undefined && !asked);
-    const failed = stores.filter((s) => by[s.id] === undefined && asked);
-    const none = owners ? [] : stores.filter((s) => by[s.id] === null);
+    const none = owners ? [] : stores.filter((s) => !by[s.id]);
     let html = have.map(({ s, o }, i) => {
       const diff = o.price - min;
       const sub = i === 0 ? (have.length > 1 ? 'más barato' : '') : diff < 0.5 ? 'igual' : `+${fmt(diff)}`;
       return `<li class="row${i === 0 ? ' best' : ''}">
-        <a class="who" href="${esc(safeUrl(o.url))}" target="_blank" rel="noopener" title="Ver en ${esc(s.name)}">${mk(s.id, true)}<span class="n">${esc(s.name)}</span></a>
+        <a class="who" href="${esc(safeUrl(o.url))}" target="_blank" rel="noopener" title="Ir a la web de ${esc(s.name)}">${mk(s.id, true)}<span class="n">${esc(s.name)}</span></a>
         <span class="bar-track"><span class="bar-fill" style="width:${Math.max(6, (o.price / max) * 100).toFixed(1)}%"></span></span>
         <span class="amt"><b>${fmt(o.price)}</b><small>${sub}</small></span>
-        ${o.promo ? `<span class="promo" style="grid-column:1/-1;justify-self:start;margin-left:28px" title="Promo no incluida en el precio">${esc(o.promo)}</span>` : ''}
       </li>`;
     }).join('');
-    if (pending.length) html += `<li class="row pending"><span>Consultando ${pending.map((s) => esc(s.name)).join(', ')}…</span></li>`;
-    if (failed.length) html += `<li class="row none"><span>No pude consultar ${failed.map((s) => esc(s.name)).join(', ')}</span></li>`;
-    if (none.length) html += `<li class="row none"><span>No lo tiene: ${none.map((s) => esc(s.name)).join(', ')}</span></li>`;
+    if (none.length) html += `<li class="row none"><span>No lo informa: ${none.map((s) => esc(s.name)).join(', ')}</span></li>`;
     if (owners) html += `<li class="row none"><span>Marca propia: solo se vende en ${owners.map((id) => esc((storeById(id) || { name: id }).name)).join(', ')}, no hay otra tienda para comparar.</span></li>`;
     return html;
   }
@@ -363,7 +379,7 @@
     const list = state.lastGroups.filter((g) => {
       if (f.brands.size && !f.brands.has(norm(g.brand))) return false;
       const st = groupStats(g.ean);
-      if (f.comparable && (ownersFor(g.ean) || (st && st.count < 2 && state.asked.has(g.ean)))) return false;
+      if (f.comparable && (ownersFor(g.ean) || (st && st.count < 2))) return false;
       if (!st) return !(hasMin || hasMax);
       return !(hasMin && st.min < min) && !(hasMax && st.min > max);
     });
@@ -412,7 +428,7 @@
     if (state.searchRan && !state.lastGroups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>No encontré nada con esa búsqueda</b>Probá con menos palabras o con la marca sola.</div>'; return; }
     const groups = visibleGroups();
     const fc = $('#fCount'); if (fc) fc.textContent = groups.length === state.lastGroups.length ? `${groups.length} productos` : `${groups.length} de ${state.lastGroups.length} productos`;
-    if (state.lastGroups.length && !groups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Ningún producto cumple los filtros</b>Probá con otro rango de precio o quitá alguna marca.<div style="margin-top:14px"><button class="btn sm" data-act="filters-clear">Limpiar filtros</button></div></div>'; observeCards(); return; }
+    if (state.lastGroups.length && !groups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Ningún producto cumple los filtros</b>Probá con otro rango de precio o quitá alguna marca.<div style="margin-top:14px"><button class="btn sm" data-act="filters-clear">Limpiar filtros</button></div></div>'; return; }
     box.innerHTML = groups.map((g) => {
       const q = cartQty(g.ean);
       return `<article class="p" data-ean="${esc(g.ean)}">
@@ -421,48 +437,23 @@
         <div class="p-foot">${q ? `<span class="in">${ic('check')}En tu lista</span>${stepper(g.ean, q)}` : `<button class="btn primary block" data-act="add" data-ean="${esc(g.ean)}">${ic('plus')}Agregar a la lista</button>`}</div>
       </article>`;
     }).join('');
-    observeCards();
   }
 
-  // Consulta el precio en las demás tiendas solo de las tarjetas que se ven (o están por verse)
-  let io = null, qTimer = null; const queue = new Set();
-  async function flushQueue() {
-    const eans = [...queue]; queue.clear();
-    try { await fetchMissing(eans); } catch { /* las tiendas que fallaron quedan marcadas en cada tarjeta */ }
-    renderResults(); renderSide(); renderDock();
-  }
-  function observeCards() {
-    if (io) io.disconnect();
-    const cards = [...document.querySelectorAll('#results .p[data-ean]')];
-    if (!cards.length) return;
-    if (!('IntersectionObserver' in window)) { cards.slice(0, 12).forEach((c) => needsFetch(c.dataset.ean) && queue.add(c.dataset.ean)); if (queue.size) flushQueue(); return; }
-    io = new IntersectionObserver((entries) => {
-      entries.forEach((en) => { if (en.isIntersecting) { io.unobserve(en.target); if (needsFetch(en.target.dataset.ean)) queue.add(en.target.dataset.ean); } });
-      if (queue.size) { clearTimeout(qTimer); qTimer = setTimeout(flushQueue, 120); }
-    }, { rootMargin: '400px' });
-    cards.forEach((c) => io.observe(c));
-  }
-
+  // La búsqueda se hace acá, sobre los datos oficiales ya descargados: no se consulta a ningún supermercado.
   async function runSearch(q) {
     if (q.length < 2) return;
-    const stores = enabledStores().map((s) => s.id);
     const status = $('#searchStatus');
-    if (!stores.length) { status.textContent = 'Activá al menos una tienda para comparar.'; return; }
+    if (!enabledStores().length) { status.textContent = 'Activá al menos una tienda para comparar.'; return; }
     $('#q').value = q;
-    state.searching = true; status.textContent = `Buscando "${q}" en ${stores.length} ${stores.length === 1 ? 'tienda' : 'tiendas'}…`; renderFilters(); renderResults();
+    state.searching = true; status.textContent = `Buscando "${q}"…`; renderFilters(); renderResults();
     try {
-      const { groups, errors } = await api(`/api/search?q=${encodeURIComponent(q)}&stores=${stores.join(',')}`);
-      noteFailures(errors);
-      groups.forEach((g) => {
-        state.meta[g.ean] = { brand: g.brand, name: g.name };
-        const cur = state.prices[g.ean] || (state.prices[g.ean] = {});
-        stores.forEach((id) => { cur[id] = g.offers[id] || cur[id]; });
-      });
+      if (!state.table) await loadTable();
+      const groups = await Data.search(q, state.settings.prov, 30);
+      groups.forEach((g) => { state.meta[g.ean] = { brand: g.brand, name: g.name }; derive(g.ean); });
       state.lastGroups = groups; state.searchRan = true; state.searching = false;
       state.filters.brands.clear(); state.filters.allBrands = false; // las marcas cambian con cada búsqueda
-      status.textContent = '';
-      renderFilters();
-      renderResults(); // al mostrarse, cada tarjeta completa las demás tiendas por código de barras
+      status.textContent = groups.length ? `Precios de ${provName(state.settings.prov)}. Primero los productos que están en más cadenas.` : '';
+      renderFilters(); renderResults(); renderSide(); renderDock();
     } catch (err) { state.searching = false; status.textContent = 'No pude buscar: ' + err.message; renderFilters(); renderResults(); }
   }
 
@@ -511,18 +502,12 @@
     const g = state.lastGroups.find((x) => x.ean === ean);
     const item = itemByEan(ean);
     if (item) item.qty++; else if (g) state.cart.push({ ean, name: g.name, brand: g.brand, qty: 1 });
+    ensurePrices([ean]);
     cartChanged();
-    fetchMissing([ean]).then(() => { renderResults(); renderSide(); renderDock(); }).catch(() => {});
   }
-  async function refreshCartPrices(force = false) {
-    if (!state.cart.length) return;
-    state.loadingPrices = true; renderPlanView(); renderSide();
-    try { await fetchMissing(state.cart.map((i) => i.ean), { force }); }
-    catch (e) { const b = $('#banner'); b.hidden = false; b.textContent = 'No pude consultar los precios: ' + e.message; }
-    state.loadingPrices = false;
-    renderSide(); renderDock();
-    if (state.view === 'plan') renderPlanView();
-  }
+
+  // Atribución que exige la licencia CC BY 4.0 de los datos, y aclaración de qué se hizo con ellos.
+  const sepaNote = () => `Fuente: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación (licencia CC BY 4.0), datos del ${dataDate() ? fmtDate(dataDate()) : 'último día publicado'}. Gondolar los agrupó por provincia usando la mediana de las sucursales de cada cadena. Son precios de góndola informados por los comercios: pueden diferir en tu sucursal y no incluyen promociones.`;
 
   // ---------- Plan ----------
   function renderPlanView() {
@@ -532,12 +517,12 @@
       return;
     }
     const n = state.cart.reduce((t, i) => t + i.qty, 0);
-    const head = `<div class="sect-h" style="margin-top:0"><div><h1 class="h1" style="font-size:clamp(28px,4vw,38px)">Tu compra</h1><p>${state.cart.length} productos, ${n} ${n === 1 ? 'unidad' : 'unidades'}${state.pricesAt ? ` · precios de las ${state.pricesAt.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', hour12: false })}` : ''}${state.home ? ` · viajes desde ${esc(shortLabel(state.home.label))}` : ''}</p></div>
-      <div class="actions"><button class="btn sm" data-act="refresh">${ic('refresh')}Actualizar precios</button><button class="btn sm" data-go="search">${ic('plus')}Agregar productos</button></div></div>`;
+    const head = `<div class="sect-h" style="margin-top:0"><div><h1 class="h1" style="font-size:clamp(28px,4vw,38px)">Tu compra</h1><p>${state.cart.length} productos, ${n} ${n === 1 ? 'unidad' : 'unidades'} · precios de ${esc(provName(state.settings.prov))}, ${dataDate() ? 'SEPA del ' + fmtDate(dataDate()) : 'SEPA'}${state.home ? ` · viajes desde ${esc(shortLabel(state.home.label))}` : ''}</p></div>
+      <div class="actions"><button class="btn sm" data-go="search">${ic('plus')}Agregar productos</button></div></div>`;
     if (state.loadingPrices) { box.innerHTML = `<div class="narrow">${head}<div class="loading-plan"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-line"></div></div></div>`; return; }
 
     const plan = currentPlan();
-    if (!plan.best) { box.innerHTML = `<div class="narrow">${head}<div class="empty"><b>No hay precios para estos productos</b>Revisá que haya tiendas activas en "Viaje y tiendas" y actualizá los precios.</div><section class="sect">${editList()}</section></div>`; return; }
+    if (!plan.best) { box.innerHTML = `<div class="narrow">${head}<div class="empty"><b>No hay precios para estos productos</b>Puede que no figuren en ${esc(provName(state.settings.prov))} o que no haya tiendas activas. Probá cambiando la provincia en el buscador o activando tiendas en "Viaje y tiendas".</div><section class="sect">${editList()}</section></div>`; return; }
 
     const best = plan.best, chosen = chosenOption(plan);
     const bestSingle = plan.singles.filter((s) => s.complete).sort((a, b) => a.total - b.total)[0];
@@ -567,19 +552,18 @@
       <div class="receipts">${chosen.stores.map((id) => {
         const store = storeById(id), lines = by[id];
         const sub = lines.reduce((t, l) => t + l.price * l.qty, 0);
-        const link = cartLink(store, lines);
         return `<article class="receipt"><div class="r-head">${mk(id)}<h3>${esc(store.name)}</h3><div class="sub"><b>${fmt(sub)}</b><span class="xs mute">${lines.length} ${lines.length === 1 ? 'producto' : 'productos'}</span></div></div>
           <ul class="r-list">${lines.map((l) => {
             const o = offerOf(l.ean, id), key = `${id}|${l.ean}`;
             const other = enabledStores().filter((s) => s.id !== id && offerOf(l.ean, s.id)).map((s) => ({ s, p: offerOf(l.ean, s.id).price })).sort((a, b) => a.p - b.p)[0];
             return `<li class="r-line"><input class="cb" type="checkbox" data-ck="${esc(key)}" aria-label="Ya lo agregué: ${esc(itemByEan(l.ean).name)}" ${state.checked[key] ? 'checked' : ''}>
-              <div class="nm"><a href="${esc(safeUrl(o.url))}" target="_blank" rel="noopener">${esc(itemByEan(l.ean).name)}</a>${o.promo ? `<span class="promo" title="Promo no incluida en el precio">${esc(o.promo)}</span>` : ''}</div>
+              <div class="nm">${esc(itemByEan(l.ean).name)}</div>
               <div class="pr">${fmt(l.price * l.qty)}${l.qty > 1 ? `<small>${l.qty} × ${fmt(l.price)}</small>` : ''}</div>
               <div class="alt">${other ? `Otra opción: ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (${other.p >= l.price ? '+' : '−'}${fmt(Math.abs(other.p - l.price))})` : 'Solo la tiene esta tienda'}</div></li>`;
           }).join('')}</ul>
           ${branchOf(id) ? `<div class="r-branch">${ic('pin')}<span><b>${esc(branchOf(id).address || branchOf(id).name)}</b><br>a ${kmText(branchOf(id).driveKm)} km, ${Math.round(branchOf(id).driveMin)} min en auto</span><a class="btn sm ghost" href="${esc(mapsLink(branchOf(id)))}" target="_blank" rel="noopener">Cómo llegar${ic('ext')}</a></div>` : ''}
           <div class="r-foot"><span class="trip">${cfg(id).mandatory ? 'Ya vas a ir, sin costo de viaje' : `Viaje: <span class="num">${fmt(tripCost(id))}</span>`}</span>
-          ${link ? `<a class="btn sm" href="${esc(link)}" target="_blank" rel="noopener" title="Abre el sitio de ${esc(store.name)} con estos productos en su carrito. El pago lo hacés vos.">Armar carrito online${ic('ext')}</a>` : ''}</div></article>`;
+          <a class="btn sm ghost" href="${esc(safeUrl(store.web))}" target="_blank" rel="noopener" title="Abre la web de ${esc(store.name)}">Web de ${esc(store.name)}${ic('ext')}</a></div></article>`;
       }).join('')}</div></section>`;
 
     const singles = plan.singles.slice().sort((a, b) => a.missing - b.missing || a.total - b.total);
@@ -601,7 +585,7 @@
 
     box.innerHTML = `<div class="narrow">${head}${verdict}${missing}${opts}${receipts}${rank}${worth}
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tu lista</h2></div></div>${editList()}</section>
-      <p class="foot-note">Precios de las webs públicas de cada cadena, con la sucursal por defecto. Pueden diferir de tu sucursal. Las promos (2x1, 2da al 70%, tarjeta) no se descuentan del total.${rateNote() ? ' ' + esc(rateNote()) : ''}</p></div>`;
+      <p class="foot-note">${sepaNote()}${rateNote() ? ' ' + esc(rateNote()) : ''}</p></div>`;
   }
   function editList() {
     return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
@@ -634,7 +618,7 @@
       p.stores.map(({ store, lines }) => `<div class="p-store"><h2><span>${esc(store.name)}${branchOf(store.id) ? ` <small style="font-weight:400;font-size:11px">· ${esc(branchOf(store.id).address || branchOf(store.id).name)}</small>` : ''}</span><span class="num">${fmt(lines.reduce((t, l) => t + l.price * l.qty, 0))}</span></h2>
         <table><thead><tr><th style="width:24px"></th><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>
         ${lines.map((l) => `<tr><td><span class="p-box"></span></td><td>${esc(itemByEan(l.ean).name)}</td><td class="num">${l.qty}</td><td class="num">${fmt(l.price)}</td><td class="num">${fmt(l.price * l.qty)}</td></tr>`).join('')}
-        </tbody></table></div>`).join('') + '<p style="font-size:10.5px">Precios de las webs de cada cadena al momento de imprimir. Pueden variar en la sucursal.</p>';
+        </tbody></table></div>`).join('') + `<p style="font-size:10.5px">${sepaNote().replace(/<[^>]+>/g, '')}</p>`;
     window.print();
   }
   async function doCopy(btn) {
@@ -665,15 +649,15 @@
     const set = `<div class="loc-set"><div><div class="eyebrow">Salís desde</div><div class="loc-label" title="${esc(state.home && state.home.label)}">${esc(state.home && shortLabel(state.home.label))}</div></div>
       <div class="actions"><button class="btn sm" data-act="home-change">Cambiar</button><button class="btn sm" data-act="branches-refresh"${state.locating ? ' disabled' : ''}>${ic('refresh')}Buscar de nuevo</button></div></div>`;
     return `<section class="sect"><div class="card"><h2 class="h2" style="margin-bottom:6px">Tu ubicación</h2>
-      <p class="sm mute" style="margin:0 0 14px">${state.home ? 'Con tu ubicación buscamos la sucursal más cercana de cada cadena y calculamos el viaje en auto.' : 'Cargá tu dirección o usá el GPS y buscamos la sucursal más cercana de cada cadena. Con eso calculamos el viaje real en vez de ponerte los km a mano.'}</p>
+      <p class="sm mute" style="margin:0 0 14px">${state.home ? 'Con tu ubicación buscamos la sucursal oficial más cercana de cada cadena, calculamos el viaje en auto y usamos los precios de tu provincia.' : 'Cargá tu dirección o usá el GPS y buscamos la sucursal oficial más cercana de cada cadena. Con eso calculamos el viaje real y usamos los precios de tu provincia.'}</p>
       ${showForm ? form : set}
-      <p class="xs mute" style="margin:14px 0 0">Tu dirección se guarda solo en este navegador. Para encontrar sucursales y rutas se consulta a OpenStreetMap con tu ubicación aproximada (a unos 100 m).</p></div></section>`;
+      <p class="xs mute" style="margin:14px 0 0">Tu dirección se guarda solo en este navegador. Para calcular las rutas se consulta a OpenStreetMap con tu ubicación aproximada (a unos 100 m).</p></div></section>`;
   }
   function branchNote(id) {
     const b = branchOf(id), c = cfg(id);
     if (!state.home) return 'Cargá tu ubicación para calcular';
     if (b === undefined) return state.locating ? 'Buscando sucursal…' : (state.branchError ? 'Sin datos' : 'Pendiente');
-    if (b === null) return 'No encontré sucursal a menos de 30 km. Cargá los km a mano.';
+    if (b === null) return `No hay sucursal oficial a menos de ${MAX_BRANCH_KM} km. Cargá los km a mano.`;
     const where = esc(b.address || b.name);
     const dist = `a ${kmText(b.driveKm)} km, ${Math.round(b.driveMin)} min${b.estimated ? ' (estimado)' : ''}`;
     return `${where} · ${dist} · <a href="${esc(mapsLink(b))}" target="_blank" rel="noopener">Cómo llegar</a>${c.manual ? ' · <button class="link" data-act="auto" data-store="' + id + '">usar el cálculo automático</button>' : ''}`;
@@ -726,7 +710,7 @@
           <label class="inp f-min"><input type="number" min="0" step="5" data-store="${s.id}" data-field="min" value="${c.min}" aria-label="Minutos ${esc(s.name)}"><em>min</em></label>
           <label class="f-man" style="display:flex;align-items:center;gap:8px"><input class="sw" type="checkbox" data-store="${s.id}" data-field="mandatory" ${c.mandatory ? 'checked' : ''} aria-label="Voy sí o sí a ${esc(s.name)}"><span class="xs mute">sí o sí</span></label>
           <div class="cost" id="trip-${s.id}">${c.mandatory ? 'sin costo' : fmt(tripCost(s.id))}</div></div>`; }).join('')}</div>
-        <p class="xs mute" style="margin-top:12px">"Voy sí o sí" es para la tienda donde ya ibas a ir: su viaje no se suma al costo. Todavía no está La Anónima porque bloquea las consultas automáticas. Las sucursales salen de OpenStreetMap, que puede no tener alguna: en ese caso cargá los km a mano.</p></section></div>`;
+        <p class="xs mute" style="margin-top:12px">"Voy sí o sí" es para la tienda donde ya ibas a ir: su viaje no se suma al costo. Las sucursales (direcciones y ubicación) son los datos oficiales de SEPA; las distancias por calle se calculan con OpenStreetMap. Carrefour Express queda afuera porque sus precios son distintos a los del resto de la cadena.</p></section></div>`;
     if (state.home && !state.editHome) initMap();
   }
   $('#view').addEventListener('input', (e) => {
@@ -744,12 +728,11 @@
         c.manual = true;
         const note = $(`[data-branch="${t.dataset.store}"]`); if (note) note.innerHTML = branchNote(t.dataset.store);
       }
-      if (t.dataset.field === 'enabled') { t.closest('.srow').classList.toggle('off', !t.checked); renderStoreChips(); if (t.checked) fetchBranches(); }
+      if (t.dataset.field === 'enabled') { t.closest('.srow').classList.toggle('off', !t.checked); renderStoreChips(); if (t.checked) fetchBranches(); renderResults(); }
     } else return;
     persist(); state.selectedK = null;
     $('#tripExample').innerHTML = exampleText();
     state.stores.forEach((s) => { const el = $('#trip-' + s.id); if (el) el.textContent = cfg(s.id).mandatory ? 'sin costo' : fmt(tripCost(s.id)); });
-    if (t.dataset.field === 'enabled') { if (t.checked) state.asked.clear(); fetchMissing(state.cart.map((i) => i.ean)).then(() => { renderSide(); renderDock(); }).catch(() => {}); }
     renderSide(); renderDock();
   });
 
@@ -765,7 +748,7 @@
     if (tog) {
       const c = cfg(tog.dataset.storeToggle); c.enabled = !c.enabled; persist();
       renderStoreChips(); renderResults(); renderSide(); renderDock();
-      if (c.enabled) { state.asked.clear(); renderResults(); fetchMissing(state.cart.map((i) => i.ean)).then(() => { renderSide(); renderDock(); }).catch(() => {}); fetchBranches(); }
+      if (c.enabled) fetchBranches();
       return;
     }
     const el = e.target.closest('[data-act]'); if (!el) return;
@@ -775,7 +758,7 @@
       case 'brands-more': state.filters.allBrands = !state.filters.allBrands; renderFilters(); return;
       case 'rates-retry': loadRates(true); return;
       case 'gps': useGps(); return;
-      case 'geo-pick': { const r = state.geoResults[Number(el.dataset.i)]; if (r) setHome({ lat: r.lat, lon: r.lon, label: r.label }); return; }
+      case 'geo-pick': { const r = state.geoResults[Number(el.dataset.i)]; if (r) setHome({ lat: r.lat, lon: r.lon, label: r.label, prov: r.prov || null }); return; }
       case 'home-change': state.editHome = true; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
       case 'home-cancel': state.editHome = false; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
       case 'branches-refresh': state.stores.forEach((s) => { cfg(s.id).manual = false; }); state.branches = { key: homeKey(), byStore: {} }; fetchBranches(true); return;
@@ -787,7 +770,6 @@
       case 'clear': state.confirmClear = true; renderPlanView(); return;
       case 'clear-no': state.confirmClear = false; renderPlanView(); return;
       case 'clear-yes': state.cart = []; state.confirmClear = false; break;
-      case 'refresh': refreshCartPrices(true); return;
       case 'pick': state.selectedK = Number(el.dataset.k); renderPlanView(); return;
       case 'print': doPrint(); return;
       case 'copy': doCopy(el); return;
@@ -806,6 +788,7 @@
   });
   document.addEventListener('change', (e) => {
     if (e.target.id === 'rateSel') { setCurrency('USD', e.target.value); return; }
+    if (e.target.id === 'provSel') { setProvince(e.target.value).then(renderProvRow); return; }
     if (e.target.id === 'fSort') { state.filters.sort = e.target.value; renderFilters(); renderResults(); return; }
     if (e.target.id === 'fComp') { state.filters.comparable = e.target.checked; renderFilters(); renderResults(); return; }
     const k = e.target.dataset && e.target.dataset.ck;
@@ -824,13 +807,26 @@
   // ---------- inicio ----------
   (async function init() {
     ['search', 'plan', 'trip'].forEach((v) => { const s = document.createElement('section'); s.id = 'v-' + v; s.hidden = true; $('#view').appendChild(s); });
-    try { state.stores = await api('/api/stores'); }
-    catch { const b = $('#banner'); b.hidden = false; b.textContent = 'No me puedo conectar con el servidor local. Abrí "iniciar.bat" o corré "npm start".'; return; }
+    try { state.data = await Data.meta(); }
+    catch (e) {
+      const b = $('#banner'); b.hidden = false;
+      b.textContent = 'No pude cargar los precios oficiales (' + e.message + '). Si estás en tu computadora, ejecutá "npm run datos" una vez y volvé a abrir la app.';
+      return;
+    }
+    state.stores = state.data.cadenas.map((c) => ({ ...c, defaultEnabled: true }));
+    if (!provinces()[state.settings.prov]) state.settings.prov = 'AR-C';
+    try { localStorage.removeItem('branches'); } catch { /* sin acceso */ } // caché vieja de sucursales de OpenStreetMap
     state.cart.forEach((i) => { state.meta[i.ean] = { brand: i.brand, name: i.name }; });
     buildSearch(); updateCount(); updateBarNote(); renderCur();
     if (state.currency.cur === 'USD') loadRates();
+    await loadTable();
+    Data.names().catch(() => {}); // se va preparando la búsqueda mientras la persona mira la pantalla
     go(state.cart.length ? 'plan' : 'search');
     renderResults();
     fetchBranches(); // completa las sucursales de tiendas que todavía no se buscaron
+    // ubicaciones guardadas antes de que existieran los precios por provincia: se completa la provincia
+    if (state.home && !state.home.prov) {
+      api(`/api/reverse?lat=${state.home.lat}&lon=${state.home.lon}`).then((r) => { if (r && r.prov) { state.home.prov = r.prov; save('home', state.home); return setProvince(r.prov); } }).catch(() => {});
+    }
   })();
 })();

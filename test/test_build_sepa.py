@@ -1,0 +1,133 @@
+"""Pruebas de scripts/build_sepa.py con un ZIP de juguete (sin descargar nada). Se ejecuta con `npm run test:datos`."""
+import io, json, os, subprocess, sys, tempfile, unittest, zipfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPT = os.path.join(ROOT, 'scripts', 'build_sepa.py')
+BOM = bytes([0xEF, 0xBB, 0xBF])
+
+COMERCIO_H = 'id_comercio|id_bandera|comercio_cuit|comercio_razon_social|comercio_bandera_nombre|comercio_bandera_url|comercio_ultima_actualizacion|comercio_version_sepa'
+SUC_H = ('id_comercio|id_bandera|id_sucursal|sucursales_nombre|sucursales_tipo|sucursales_calle|sucursales_numero|sucursales_latitud|'
+         'sucursales_longitud|sucursales_observaciones|sucursales_barrio|sucursales_codigo_postal|sucursales_localidad|sucursales_provincia')
+PROD_H = ('id_comercio|id_bandera|id_sucursal|id_producto|productos_ean|productos_descripcion|productos_cantidad_presentacion|'
+          'productos_unidad_medida_presentacion|productos_marca|productos_precio_lista|productos_precio_referencia|'
+          'productos_cantidad_referencia|productos_unidad_medida_referencia')
+
+
+def suc(cid, band, sid, nombre, tipo, calle, num, lat, lon, loc, prov):
+    return f'{cid}|{band}|{sid}|{nombre}|{tipo}|{calle}|{num}|{lat}|{lon}||||{loc}|{prov}'
+
+
+def prod(cid, band, sid, ean, desc, price, marca='MARCA'):
+    return f'{cid}|{band}|{sid}|{ean}|1|{desc}|500|grm|{marca}|{price}|0|1|kgm'
+
+
+def inner_zip(comercio, sucursales, productos, cp1252=False, bom=False):
+    def enc(text):
+        b = text.encode('cp1252' if cp1252 else 'utf-8')
+        return BOM + b if bom else b
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as z:
+        z.writestr('comercio.csv', enc('\n'.join([COMERCIO_H] + comercio)))
+        z.writestr('sucursales.csv', enc('\n'.join([SUC_H] + sucursales)))
+        z.writestr('productos.csv', enc('\n'.join([PROD_H] + productos)))
+    return buf.getvalue()
+
+
+def make_fixture(path):
+    carrefour = inner_zip(
+        ['10|1|30687310434|INC S.A.|Hipermercado Carrefour|www.carrefour.com.ar|2026-09-29|1.0',
+         '10|3|30687310434|INC S.A.|Express|www.carrefour.com.ar|2026-09-29|1.0'],
+        [suc(10, 1, 1, 'HIPER CENTRO', 'Hipermercado', 'Av. Rivadavia', 2243, '-34.6100', '-58.4000', 'Almagro', 'AR-C'),
+         suc(10, 1, 2, 'WEB', 'Web', 'Deposito', 1, '-34.7000', '-58.5000', 'Ituzaingo', 'AR-B'),
+         suc(10, 3, 1, 'EXPRESS', 'Autoservicio', 'Corrientes', 100, '-34.6040', '-58.3800', 'Centro', 'AR-C')],
+        [prod(10, 1, 1, '0007790895000997', 'GASEOSA COLA COCA COLA 2250 CM3', 5900, 'COCA COLA'),
+         prod(10, 1, 1, '0007793704000911', 'YERBA MATE C/PALO PLAYADITO', 2790, 'PLAYADITO'),
+         prod(10, 3, 1, '0007790895000997', 'GASEOSA COLA COCA COLA 2250 CM3', 9999, 'COCA COLA'),   # Express: se ignora
+         prod(10, 1, 1, '12345', 'CODIGO INVALIDO', 100)],
+        bom=True)
+    dia = inner_zip(
+        ['15|1|30685849751|DIA Argentina S.A.|Supermercados DIA|https://www.supermercadosdia.com.ar|2026-09-29|1.0'],
+        [suc(15, 1, 1, 'DIA Nuñez', 'Autoservicio', 'Av. Cabildo', 2000, '-34.5600', '-58.4500', 'Núñez', 'AR-C'),
+         suc(15, 1, 2, 'DIA Ramos', 'Autoservicio', 'Rivadavia', 13000, '-34.6400', '-58.5600', 'Ramos Mejía', 'AR-B'),
+         'Última actualización: 2026-09-29'],   # línea suelta al final (pasa en SEPA de verdad)
+        [prod(15, 1, 1, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 5800, 'COCA-COLA'),
+         prod(15, 1, 2, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 6000, 'COCA-COLA'),
+         prod(15, 1, 1, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 5900, 'COCA-COLA')],
+        cp1252=True)
+    with zipfile.ZipFile(path, 'w') as outer:
+        outer.writestr('2026-09-29/', '')
+        outer.writestr('2026-09-29/sepa_1_comercio-sepa-10_2026-09-29_09-05-11.zip', carrefour)
+        outer.writestr('2026-09-29/sepa_1_comercio-sepa-15_2026-09-29_09-05-11.zip', dia)
+        outer.writestr('2026-09-29/sepa_2_comercio-sepa-36_2026-09-29_01-05-08.zip', b'')   # ZIP vacio: se omite
+
+
+class BuildSepa(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        cls.zip = os.path.join(cls.tmp.name, 'sepa.zip')
+        cls.out = os.path.join(cls.tmp.name, 'data')
+        make_fixture(cls.zip)
+        cls.run_ok = subprocess.run([sys.executable, SCRIPT, '--zip', cls.zip, '--out', cls.out], capture_output=True, text=True,
+                                    env={**os.environ, 'SEPA_RELAX': '1', 'PYTHONIOENCODING': 'utf-8'})
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def load(self, *parts):
+        with open(os.path.join(self.out, *parts), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_termina_bien(self):
+        self.assertEqual(self.run_ok.returncode, 0, self.run_ok.stderr)
+
+    def test_meta(self):
+        m = self.load('meta.json')
+        self.assertEqual(m['fecha'], '2026-09-29')
+        self.assertEqual([c['id'] for c in m['cadenas']][:2], ['carrefour', 'jumbo'])
+        self.assertIn('AR-C', m['provincias'])
+        self.assertIn('Creative Commons', m['licencia'])
+
+    def test_codigos_de_barras_sin_ceros_de_relleno(self):
+        n = self.load('names.json')
+        self.assertIn('7790895000997', n['e'])
+        self.assertNotIn('0007790895000997', n['e'])
+        self.assertNotIn('12345', n['e'])   # codigo invalido
+
+    def test_precio_mediana_por_provincia_y_cadena(self):
+        caba = self.load('prices', 'AR-C.json')['7790895000997']
+        order = [c['id'] for c in self.load('meta.json')['cadenas']]
+        self.assertEqual(caba[order.index('carrefour')], 5900)   # el Express (9999) no cuenta
+        self.assertEqual(caba[order.index('dia')], 5850)         # mediana de 5800 y 5900 en CABA
+        self.assertIsNone(caba[order.index('coto')])
+        self.assertEqual(self.load('prices', 'AR-B.json')['7790895000997'][order.index('dia')], 6000)
+
+    def test_sucursales_sin_express_ni_web(self):
+        b = self.load('branches.json')
+        nombres = [x[2] for x in b]
+        self.assertIn('Hiper Centro', nombres)
+        self.assertNotIn('Express', nombres)
+        self.assertFalse([x for x in b if str(x[8]).lower() == 'web'])
+        self.assertEqual(len(b), 3)   # hiper + 2 Dia
+        self.assertTrue(all(x[6] is not None for x in b))
+
+    def test_nombres_limpios_y_mas_completos(self):
+        n = self.load('names.json')
+        i = n['e'].index('7790895000997')
+        self.assertEqual(n['n'][i], 'Coca Cola Gaseosa 2.25 l Sabor Original')   # el mas largo, con mayusculas prolijas y unidades en minuscula
+        self.assertEqual(n['m'][i], 'Coca Cola')
+
+    def test_caracteres_del_formato_antiguo(self):
+        b = self.load('branches.json')
+        self.assertIn('DIA Nuñez', [x[2] for x in b])   # cp1252 -> ñ correcta (nombre mixto: se respeta)
+
+    def test_falla_si_los_datos_no_pasan_las_validaciones(self):
+        r = subprocess.run([sys.executable, SCRIPT, '--zip', self.zip, '--out', os.path.join(self.tmp.name, 'otro')],
+                           capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != 'SEPA_RELAX'})
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn('validaciones', r.stderr + r.stdout)
+
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

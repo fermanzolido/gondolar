@@ -18,16 +18,16 @@
   <div class="box"><p><b>En resumen.</b> Gondolar es una herramienta gratuita, independiente y sin fines de lucro. No tiene cuentas, no muestra publicidad, no usa métricas ni cookies de seguimiento. Tu lista, tus ajustes y tu ubicación se guardan solo en tu navegador. Los precios son orientativos.</p></div>
 
   <h2 id="que-es">1. Qué es Gondolar</h2>
-  <p>Es una herramienta que consulta los precios que las cadenas de supermercados publican en sus sitios web y los muestra juntos para que puedas compararlos, armar una lista de compras y calcular dónde te conviene comprar cada producto teniendo en cuenta el costo de ir hasta cada local. Es un proyecto personal de código abierto, sin fines de lucro y sin publicidad.</p>
+  <p>Es una herramienta que muestra juntos los precios que las cadenas de supermercados informan al Estado (datos abiertos oficiales de Precios Claros – SEPA) para que puedas compararlos, armar una lista de compras y calcular dónde te conviene comprar cada producto teniendo en cuenta el costo de ir hasta cada local. Es un proyecto personal de código abierto, sin fines de lucro y sin publicidad.</p>
 
   <h2 id="responsable">2. Quién está detrás y cómo contactar</h2>
   <p>El proyecto lo mantiene su autor, con el usuario de GitHub <b>@fermanzolido</b>. Para cualquier consulta, pedido de acceso o borrado de datos, reclamo o solicitud de retiro de contenido, abrí una consulta pública en <a href="https://github.com/fermanzolido/gondolar/issues" target="_blank" rel="noopener">github.com/fermanzolido/gondolar/issues</a>. Por favor no incluyas datos personales en una consulta pública: si hace falta, se coordina otro medio de contacto.</p>
 
   <h2 id="precios">3. Los precios son orientativos</h2>
   <ul>
-    <li>Los precios, promociones y nombres de productos provienen de los sitios web públicos de cada cadena. Pueden cambiar en cualquier momento, tener errores o diferir del precio de tu sucursal, tu zona o tu medio de pago.</li>
+    <li>Los precios y nombres de productos provienen de la base oficial SEPA (Precios Claros), que informan los propios comercios a la Secretaría de Comercio de la Nación. Son precios de góndola agrupados por provincia (mediana de las sucursales de cada cadena): pueden cambiar en cualquier momento, tener errores o diferir del precio de tu sucursal, tu zona o tu medio de pago.</li>
     <li>Nada de lo que se muestra es una oferta de venta ni un compromiso de precio. La única información válida es la que muestra cada supermercado al momento de comprar.</li>
-    <li>Las promociones (por ejemplo, 2x1, segunda unidad o descuentos con tarjeta) no se descuentan del total: solo se indican como aviso.</li>
+    <li>Los precios no incluyen promociones ni descuentos con tarjeta o billeteras: son el precio de lista informado por cada comercio.</li>
     <li>Los costos de viaje, las distancias, los tiempos y los ahorros se calculan con estimaciones y datos abiertos. Son una ayuda para decidir, no un valor exacto.</li>
     <li>El servicio se ofrece <b>"tal cual"</b>, sin garantía de que esté disponible, actualizado o libre de errores.</li>
   </ul>
@@ -38,13 +38,13 @@
 
   <h2 id="origen">5. De dónde salen los datos</h2>
   <ul>
-    <li><b>Precios y productos:</b> consultas puntuales a los catálogos públicos de cada cadena. Se hacen a pedido de quien usa la herramienta, con volumen bajo, guardando resultados unos minutos para no repetir pedidos, y la herramienta se identifica con su nombre (<i>Gondolar</i>) y la dirección de este proyecto.</li>
+    <li><b>Precios y productos:</b> base abierta <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, de la Secretaría de Comercio de la Nación, publicada con licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener">Creative Commons Atribución 4.0</a>. Una vez por día, un proceso automático de este proyecto descarga esos datos, unifica los códigos de barras, limpia los nombres, agrupa los precios por provincia (mediana de las sucursales de cada cadena) y publica el resultado en archivos livianos. Se trata de una versión modificada de los datos originales. <b>Gondolar no consulta los sitios web de los supermercados.</b></li>
     <li><b>Cotizaciones del dólar:</b> las trae el servidor de Gondolar (no tu navegador) desde <a href="https://dolarapi.com" target="_blank" rel="noopener">dolarapi.com</a> (oficial, blue, MEP, contado con liqui, cripto y tarjeta) y <a href="https://criptoya.com" target="_blank" rel="noopener">criptoya.com</a> (cotización oficial de cada banco), y se guardan unos minutos. Esos servicios no reciben ningún dato tuyo. Son valores de referencia, pueden no coincidir con el precio al que realmente podés operar y no constituyen asesoramiento financiero.</li>
-    <li><b>Sucursales, direcciones y rutas:</b> datos abiertos de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (© colaboradores de OpenStreetMap, licencia ODbL), a través de los servicios Nominatim, Overpass y OSRM. OpenStreetMap puede no tener alguna sucursal o tener datos desactualizados.</li>
+    <li><b>Sucursales:</b> las direcciones y ubicaciones de cada local son los datos oficiales de SEPA. <b>Direcciones y rutas:</b> las direcciones que escribís y las rutas en auto se resuelven con datos abiertos de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (© colaboradores de OpenStreetMap, licencia ODbL), a través de los servicios Nominatim y OSRM.</li>
   </ul>
 
   <h2 id="compras">6. Enlaces y compras</h2>
-  <p>La herramienta incluye enlaces a los sitios de los supermercados y a Google Maps. Gondolar <b>no vende productos ni procesa pagos</b>: cualquier compra se hace en el sitio de cada cadena, bajo sus propios términos y políticas de privacidad. El botón "Armar carrito online" solo abre el sitio de la cadena con los productos cargados; la compra y el pago los hacés vos allí. No nos hacemos responsables de los sitios de terceros.</p>
+  <p>La herramienta incluye enlaces a los sitios de los supermercados y a Google Maps. Gondolar <b>no vende productos ni procesa pagos</b>: cualquier compra se hace en el sitio de cada cadena, bajo sus propios términos y políticas de privacidad. Los enlaces a cada cadena solo abren su sitio web; la compra y el pago los hacés vos allí. No nos hacemos responsables de los sitios de terceros.</p>
 
   <h2 id="privacidad">7. Privacidad y protección de datos personales</h2>
   <h3>Qué datos se tratan</h3>
@@ -63,10 +63,9 @@
     <thead><tr><th>Servicio</th><th>Cuándo</th><th>Qué recibe</th></tr></thead>
     <tbody>
       <tr><td>GitHub Pages (GitHub, Inc.)</td><td>Siempre, al abrir la web</td><td>Tu dirección IP y los datos técnicos habituales de cualquier visita.</td></tr>
-      <tr><td>Cloudflare Workers (Cloudflare, Inc.)</td><td>Al buscar, ver precios o calcular sucursales</td><td>Tu IP y lo que se consulta. No se guarda en una base de datos propia ni se arman perfiles.</td></tr>
-      <tr><td>Sitios de las cadenas</td><td>Al buscar y ver precios</td><td>El texto buscado o el código de barras del producto. La consulta sale desde Cloudflare: <b>no reciben tu IP ni tu ubicación</b>.</td></tr>
+      <tr><td>Cloudflare Workers (Cloudflare, Inc.)</td><td>Al buscar una dirección, calcular rutas o ver la cotización del dólar</td><td>Tu IP y lo que se consulta (la dirección escrita o tu ubicación aproximada). No se guarda en una base de datos propia ni se arman perfiles.</td></tr>
       <tr><td>OpenStreetMap: Nominatim</td><td>Al buscar una dirección</td><td>El texto de la dirección que escribiste.</td></tr>
-      <tr><td>OpenStreetMap: Overpass y OSRM</td><td>Al calcular sucursales y rutas</td><td>Tu ubicación redondeada a unos 100 metros. La consulta sale desde Cloudflare, no desde tu dispositivo.</td></tr>
+      <tr><td>OpenStreetMap: OSRM</td><td>Al calcular rutas</td><td>Tu ubicación redondeada a unos 100 metros y la de las sucursales candidatas. La consulta sale desde Cloudflare, no desde tu dispositivo.</td></tr>
       <tr><td>Google Fonts (Google)</td><td>Solo si lo permitís</td><td>Tu IP y datos técnicos del navegador.</td></tr>
       <tr><td>Mapa: cdnjs (Cloudflare) y OpenStreetMap</td><td>Solo si lo permitís</td><td>Tu IP y la zona del mapa que estás viendo.</td></tr>
       <tr><td>Google Maps</td><td>Solo si tocás "Cómo llegar"</td><td>El enlace incluye tu punto de partida y el destino, y se abre en el sitio de Google.</td></tr>
@@ -115,6 +114,7 @@
   <h2 id="licencia">11. Licencia y créditos</h2>
   <ul>
     <li>El código de Gondolar se publica bajo <a href="https://github.com/fermanzolido/gondolar/blob/main/LICENSE" target="_blank" rel="noopener">licencia MIT</a>.</li>
+    <li>Precios y sucursales: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación, licencia <a href="https://creativecommons.org/licenses/by/4.0/deed.es" target="_blank" rel="noopener">CC BY 4.0</a>. Datos modificados por Gondolar (agrupados por provincia, con códigos de barras unificados y nombres limpiados).</li>
     <li>Mapa: <a href="https://leafletjs.com" target="_blank" rel="noopener">Leaflet</a> (licencia BSD-2) y datos de <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> (© colaboradores de OpenStreetMap, licencia ODbL).</li>
     <li>Tipografías: Bricolage Grotesque, Instrument Sans e IBM Plex Mono, con licencia SIL Open Font License, servidas por Google Fonts.</li>
   </ul>

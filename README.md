@@ -1,7 +1,8 @@
 # Gondolar
 
-Comparador de precios de supermercados argentinos. Armás tu lista, y la app te dice **en qué súper conviene comprar cada
-cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al final imprimís la lista dividida por tienda.
+Comparador de precios de supermercados argentinos con **datos abiertos oficiales**. Armás tu lista, y la app te dice
+**en qué súper conviene comprar cada cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al final
+imprimís la lista dividida por tienda.
 
 **[Probarlo online →](https://fermanzolido.github.io/gondolar/)** · Gratis, sin cuentas, sin publicidad.
 
@@ -10,17 +11,21 @@ cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al 
 
 ## Qué hace
 
-- **Compara 7 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás y Coto (más Cordiez y Josimar, regionales, opcionales).
-- **Encuentra el mismo producto en todas** usando el código de barras (EAN), así se compara exactamente lo mismo.
+- **Compara 8 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima.
+- **Usa la base oficial SEPA** ([Precios Claros](https://datos.produccion.gob.ar/dataset/sepa-precios), Secretaría de Comercio
+  de la Nación): precios que los comercios informan al Estado, actualizados todos los días. **No consulta los sitios de los
+  supermercados.**
+- **Encuentra el mismo producto en todas** con el código de barras (EAN), así se compara exactamente lo mismo.
+- **Precios de tu provincia:** el precio de un mismo producto cambia según la zona (hasta 44% entre sucursales de una
+  cadena). Se elige la provincia, o se completa sola al cargar tu ubicación.
 - **Filtros** por marca y precio, más orden por precio o por mayor diferencia entre tiendas. "Solo comparables" oculta las
   marcas propias, que solo se venden en su cadena (Carrefour Classic, Día, Coto…).
 - **Plan de compra:** prueba todas las combinaciones de tiendas y elige la de menor costo total (productos + viajes).
   Muestra la mejor opción para ir a 1, 2 o 3 tiendas y si **vale la pena** cada parada extra.
-- **Tu ubicación:** con tu dirección o el GPS busca la sucursal más cercana de cada cadena, calcula km y minutos en auto y
-  completa el costo del viaje solo. Muestra un mapa y un botón "Cómo llegar".
+- **Tu ubicación:** con tu dirección o el GPS elige la sucursal **oficial** más cercana de cada cadena (con su dirección),
+  calcula km y minutos en auto y completa el costo del viaje solo. Muestra un mapa y un botón "Cómo llegar".
 - **Pesos o dólares:** el selector `ARS | USD` convierte todos los importes con la cotización que elijas: oficial, blue, MEP,
-  contado con liqui, cripto, tarjeta o la oficial de cada banco. Las cotizaciones vienen de dolarapi.com y criptoya.com a
-  través de la API (`/api/dolar`), son de referencia, y los bancos sin actualizar se ocultan.
+  contado con liqui, cripto, tarjeta o la oficial de cada banco (dolarapi.com y criptoya.com, a través de `/api/dolar`).
 - **Lista para el súper:** tickets por tienda con casilleros para ir tildando, impresión y copiado para WhatsApp.
 - **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; las tipografías y el mapa de terceros
   se cargan únicamente si lo permitís. No muestra fotos de productos ni logos de las cadenas.
@@ -29,31 +34,42 @@ cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al 
 
 **Online:** entrá a https://fermanzolido.github.io/gondolar/. La primera vez, cargá tu dirección en *Viaje y tiendas*.
 
-**En tu computadora** (necesita [Node.js](https://nodejs.org) 18 o superior, sin dependencias que instalar):
+**En tu computadora** (necesita [Node.js](https://nodejs.org) 18+ y [Python](https://www.python.org) 3.9+, sin dependencias que instalar):
 
 ```bash
 git clone https://github.com/fermanzolido/gondolar.git
 cd gondolar
+npm run datos      # descarga y procesa los datos oficiales de hoy (~300 MB de bajada, 1 minuto)
 npm start          # o doble clic en iniciar.bat (Windows)
 ```
 
-Se abre en http://localhost:3210. Para correr las pruebas: `npm test`.
+Se abre en http://localhost:3210. Cuando quieras precios más nuevos, volvé a correr `npm run datos`.
+Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` (proceso de datos).
 
 ## Cómo funciona
 
 ```
-Navegador (GitHub Pages) ──► API (Cloudflare Worker) ──► sitios públicos de las cadenas
-        public/                 worker/ + lib/           OpenStreetMap (direcciones, sucursales, rutas)
+SEPA (datos.produccion.gob.ar) ──► GitHub Actions, una vez por día ──► archivos estáticos en GitHub Pages ──► navegador
+                                     scripts/build_sepa.py                public/data/*.json                     (búsqueda y plan)
+                                                                                                                  │ solo direcciones,
+                                                            Cloudflare Worker (worker/ + lib/) ◄──────────────────┘ rutas y dólar
+                                                            OpenStreetMap (Nominatim, OSRM)
 ```
 
-- `public/` — la web (HTML, CSS y JavaScript sin frameworks). Guarda todo en `localStorage`.
-- `lib/api.js` — rutas de la API, compartidas entre el servidor local (`server.js`) y el Worker (`worker/index.mjs`).
-- `lib/fetchers.js` — conectores por tipo de tienda: VTEX (Carrefour, Jumbo, Disco, Vea, Día, Changomás) y Coto.
-- `lib/geo.js` — geocodificación (Nominatim), sucursales (Overpass) y rutas en auto (OSRM).
-- `public/optimizer.js` — el optimizador: función pura, con tests en `test/`.
+- `scripts/build_sepa.py` — baja el ZIP diario de SEPA (~300 MB), unifica códigos de barras, limpia nombres y agrupa los
+  precios por provincia (mediana de las sucursales de cada cadena). Genera `meta.json`, `names.json`, `branches.json` y un
+  `prices/AR-X.json` por provincia (unos 9 MB comprimidos en total; cada persona baja ~2 MB). Si el formato oficial cambia y los
+  datos no pasan las validaciones, **falla** en vez de publicar datos rotos.
+- `public/data.js` — carga esos archivos y hace la búsqueda en el navegador.
+- `public/app.js` — la interfaz (HTML, CSS y JavaScript sin frameworks). Guarda todo en `localStorage`.
+- `public/optimizer.js` — el optimizador del plan: función pura, con tests en `test/`.
+- `lib/api.js`, `lib/geo.js` — la API mínima (direcciones, rutas y dólar), compartida entre el servidor local (`server.js`) y
+  el Worker (`worker/index.mjs`). Los precios y las sucursales **no** pasan por ella.
 - `public/consent.js` — consentimiento de privacidad: nada de terceros se carga sin permiso.
 
-Para sumar otra cadena que use VTEX alcanza con agregar una línea en `lib/stores.js`.
+Decisiones sobre los datos: Carrefour Express queda afuera (sus precios y su ubicación no representan al resto de la
+cadena), y de La Anónima solo entran los supermercados (no Topsy ni Bomba). Para sumar otra cadena de SEPA alcanza con
+agregarla a `CHAINS` en `scripts/build_sepa.py`.
 
 ## Publicarlo gratis (GitHub Pages + Cloudflare Workers)
 
@@ -67,33 +83,33 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
    Te da una URL como `https://cuanto-sale-api.TU-SUBDOMINIO.workers.dev`.
 2. **Web en GitHub Pages.** Subí el proyecto a un repositorio. En *Settings → Pages* elegí *Source: GitHub Actions*.
    En *Settings → Secrets and variables → Actions → Variables* creá `API_BASE` con la URL del paso 1.
-   Cada `git push` a `main` publica la web (`.github/workflows/pages.yml`).
+   El flujo `.github/workflows/pages.yml` publica la web con cada `git push` a `main` **y todos los días a las 14:30
+   (hora argentina)**, cuando SEPA ya publicó los datos del día: descarga los datos, los procesa y despliega.
 3. **Cerrar la API a tu web.** En `wrangler.toml` poné `ALLOWED_ORIGIN = "https://TU-USUARIO.github.io"` y volvé a
    ejecutar `npx wrangler deploy`.
 4. *Opcional:* cargá los secrets `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID` para que la API se publique sola con
    cada push (`.github/workflows/worker.yml`).
 
-Límites del plan gratis de Cloudflare: 100.000 pedidos por día y 50 consultas externas por pedido; por eso la web pide
-los precios en tandas de hasta 24 combinaciones producto x tienda.
+Si la descarga de SEPA falla un día, la publicación se cancela y la web sigue con los datos del día anterior.
 
 ## Limitaciones
 
-- Los precios son los que muestra cada web por defecto: pueden diferir según sucursal, zona o medio de pago.
-- Las promociones (2x1, segunda unidad, tarjeta) no se restan del total: se muestran como aviso.
-- OpenStreetMap puede no tener alguna sucursal; en ese caso se cargan los km a mano.
-- No están La Anónima ni otras cadenas que bloquean las consultas automáticas.
-- Si una cadena cambia su web, su conector (`lib/fetchers.js`) puede necesitar un ajuste.
-- Los servicios públicos de mapas (Overpass, OSRM, Nominatim) tienen límites de uso y a veces se saturan.
+- Son precios de góndola informados por los comercios, agrupados por provincia: pueden diferir en tu sucursal, tu zona o
+  tu medio de pago. La app muestra de qué día son.
+- No incluyen promociones ni descuentos con tarjeta.
+- SEPA publica un día por vez y no todos los productos de cada cadena figuran: el catálogo es más chico que el de sus webs
+  (por ejemplo, Jumbo informa unos 10.700 productos).
+- Cada cadena informa a su modo: algunos nombres vienen abreviados. La app elige el más completo.
+- Las distancias por calle se calculan con OSRM (OpenStreetMap), que tiene límites de uso; si falla, se estiman.
 
 ## Uso responsable de los datos
 
-Las consultas a las cadenas se hacen a pedido de quien usa la herramienta, con volumen bajo y guardando resultados unos
-minutos. La herramienta se identifica con su nombre (`Gondolar`) y la dirección de este repositorio; no finge ser un
-navegador. Si sos titular de una marca o sitio y querés que algo cambie o se quite, abrí un
+Los precios y las sucursales son datos abiertos que el Estado publica con licencia **Creative Commons Atribución 4.0**.
+Gondolar los modifica (agrupa por provincia, unifica códigos de barras y limpia nombres) y cita la fuente en la web y en
+el aviso legal. Si sos titular de una marca o de un dato y querés que algo cambie o se quite, abrí un
 [issue](https://github.com/fermanzolido/gondolar/issues).
 
-Si forkeás el proyecto, respetá los términos de uso de los sitios que consultes y de los servicios de OpenStreetMap
-([política de uso](https://operations.osmfoundation.org/policies/)).
+Si forkeás el proyecto, mantené la atribución y respetá la [política de uso de OpenStreetMap](https://operations.osmfoundation.org/policies/).
 
 ## Privacidad
 
@@ -104,7 +120,9 @@ aceptás, y podés cambiarlo cuando quieras. Detalle completo, con qué recibe c
 
 ## Créditos
 
-- Datos de sucursales, direcciones y rutas: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright) (licencia ODbL).
+- Precios y sucursales: [Precios Claros – Base SEPA](https://datos.produccion.gob.ar/dataset/sepa-precios), Secretaría de
+  Comercio de la Nación, licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.es). Datos modificados.
+- Direcciones y rutas: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright) (licencia ODbL).
 - Mapa: [Leaflet](https://leafletjs.com) (BSD-2).
 - Tipografías: Bricolage Grotesque, Instrument Sans e IBM Plex Mono (SIL Open Font License).
 

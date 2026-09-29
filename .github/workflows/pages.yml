@@ -1,8 +1,11 @@
 name: Publicar la web (GitHub Pages)
 
+# Se ejecuta con cada cambio en main y todos los días a las 17:30 UTC (14:30 en Argentina), cuando SEPA ya publicó los datos.
 on:
   push:
     branches: [main]
+  schedule:
+    - cron: '30 17 * * *'
   workflow_dispatch:
 
 permissions:
@@ -22,6 +25,18 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Pruebas
+        run: |
+          npm test
+          python test/test_build_sepa.py
+
+      - name: Descargar y procesar los datos abiertos de SEPA (Precios Claros)
+        run: python scripts/build_sepa.py --download --out public/data
 
       - name: Apuntar la web a tu API (variable API_BASE del repositorio)
         env:

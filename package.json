@@ -1,11 +1,13 @@
 {
   "name": "comparador-supermercados",
   "version": "1.0.0",
-  "description": "Comparador de precios de supermercados argentinos con armado de carrito y plan de compra",
+  "description": "Comparador de precios de supermercados argentinos con datos abiertos oficiales (SEPA), armado de carrito y plan de compra",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "datos": "python scripts/build_sepa.py --download --out public/data",
     "test": "node test/optimizer.test.js && node test/rates.test.js && node test/worker.test.mjs",
+    "test:datos": "python test/test_build_sepa.py",
     "deploy:api": "wrangler deploy"
   },
   "engines": { "node": ">=18" },

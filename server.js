@@ -1,5 +1,4 @@
-// Servidor local: sirve la web y hace de intermediario con los supermercados
-// (los navegadores no pueden consultarlos directo por CORS).
+// Servidor local: sirve la web (incluidos los datos de SEPA de public/data) y resuelve direcciones y rutas.
 // La lógica de la API vive en lib/api.js, compartida con el Cloudflare Worker.
 const http = require('node:http');
 const fs = require('node:fs');
