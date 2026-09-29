@@ -21,6 +21,16 @@ r = await call('/api/geocode?q=a', { headers: { origin: 'https://yo.github.io' }
 assert.equal(r.status, 400); // pasó el filtro de origen y falló la validación (texto muy corto)
 assert.equal(r.headers.get('access-control-allow-origin'), 'https://yo.github.io');
 
+// varias webs permitidas (dominio propio + GitHub Pages): responde con la que llama
+const env2 = { ALLOWED_ORIGIN: 'https://mi.com.ar, https://yo.github.io/' };
+for (const o of ['https://mi.com.ar', 'https://yo.github.io']) {
+  r = await call('/api/geocode?q=a', { headers: { origin: o } }, env2);
+  assert.equal(r.status, 400, o);
+  assert.equal(r.headers.get('access-control-allow-origin'), o);
+}
+r = await call('/api/geocode?q=a', { headers: { origin: 'https://otro.com' } }, env2);
+assert.equal(r.status, 403);
+
 // validaciones de /api/route (todas antes de tocar la red)
 const post = (body) => call('/api/route', { method: 'POST', body: JSON.stringify(body) });
 r = await post({ lat: 999, lon: 0, candidates: [] });

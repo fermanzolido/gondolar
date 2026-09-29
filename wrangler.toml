@@ -3,5 +3,5 @@ main = "worker/index.mjs"
 compatibility_date = "2025-01-01"
 
 [vars]
-# Poné acá la URL de tu GitHub Pages (ej: "https://tuusuario.github.io") para que solo tu web pueda usar la API.
-ALLOWED_ORIGIN = "https://fermanzolido.github.io"
+# Webs que pueden usar la API, separadas por coma (sin barra final). Si no querés restringirla, poné "*".
+ALLOWED_ORIGIN = "https://gondolar.com.ar,https://www.gondolar.com.ar,https://fermanzolido.github.io"

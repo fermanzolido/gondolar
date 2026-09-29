@@ -8,9 +8,12 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const origin = request.headers.get('Origin') || '';
-    const allowed = (env && env.ALLOWED_ORIGIN) || '*';
+    // ALLOWED_ORIGIN puede ser '*' o una lista de webs separadas por coma (p. ej. el dominio propio y el de GitHub Pages)
+    const list = String((env && env.ALLOWED_ORIGIN) || '*').split(',').map((s) => s.trim().replace(/\/+$/, '')).filter(Boolean);
+    const any = list.includes('*') || !list.length;
+    const allowed = any ? '*' : list.includes(origin) ? origin : list[0];
     const cors = {
-      'Access-Control-Allow-Origin': allowed === '*' ? '*' : allowed,
+      'Access-Control-Allow-Origin': allowed,
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
       'Access-Control-Allow-Headers': 'content-type',
       'Access-Control-Max-Age': '86400',
@@ -20,7 +23,7 @@ export default {
 
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     if (!url.pathname.startsWith('/api/')) return new Response('Gondolar API', { headers: { ...cors, 'content-type': 'text/plain; charset=utf-8' } });
-    if (allowed !== '*' && origin && origin !== allowed) return reply(403, { error: 'Origen no permitido' });
+    if (!any && origin && !list.includes(origin)) return reply(403, { error: 'Origen no permitido' });
 
     try {
       const r = await handleApi({
