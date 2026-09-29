@@ -1,0 +1,7 @@
+name = "cuanto-sale-api"
+main = "worker/index.mjs"
+compatibility_date = "2025-01-01"
+
+[vars]
+# Poné acá la URL de tu GitHub Pages (ej: "https://tuusuario.github.io") para que solo tu web pueda usar la API.
+ALLOWED_ORIGIN = "*"
