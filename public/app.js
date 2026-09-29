@@ -230,7 +230,7 @@
     state.settings.prov = prov; persist();
     await loadTable();
     state.selectedK = null;
-    renderStoreChips(); fetchBranches();
+    renderStoreChips(); renderProvRow(); fetchBranches();
     refreshMoney();
   }
   // deja cargados los precios de los productos que se muestran o están en la lista
