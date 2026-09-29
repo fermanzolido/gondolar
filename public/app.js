@@ -31,7 +31,7 @@
 
   const state = {
     stores: [],
-    cart: load('cart', []),                   // [{ ean, name, brand, image, qty }]
+    cart: load('cart', []).map(({ ean, name, brand, qty }) => ({ ean, name, brand, qty })), // sin fotos (también limpia listas viejas)
     settings: { ...DEFAULT_SETTINGS, ...load('settings', {}) },
     checked: load('checked', {}),             // "tienda|ean" -> true (ya lo puse en el carrito)
     prices: {},                               // ean -> tienda -> oferta | null | undefined (sin consultar)
@@ -292,9 +292,6 @@
     return html;
   }
   const stepper = (ean, q, cls = '') => `<div class="stepper ${cls}"><button data-act="dec" data-ean="${esc(ean)}" aria-label="Quitar uno">${ic('minus')}</button><output aria-label="Cantidad">${q}</output><button data-act="inc" data-ean="${esc(ean)}" aria-label="Agregar uno">${ic('plus')}</button></div>`;
-  // Las fotos las sirve cada supermercado: solo se piden si la persona lo permitió (ver consent.js).
-  const imagesAllowed = () => !!(window.Consent && window.Consent.allows('images'));
-  const thumb = (src) => `<div class="p-img">${src && imagesAllowed() ? `<img src="${esc(safeUrl(src))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</div>`;
 
   // ---------- filtros de resultados ----------
   const niceBrand = (b) => { const t = String(b || '').trim(); return t && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()) : t; };
@@ -351,7 +348,7 @@
     const box = $('#results');
     if (!box) return;
     if (state.searching) {
-      box.innerHTML = Array.from({ length: 6 }, () => `<article class="p" aria-hidden="true"><div class="p-top"><div class="p-img"></div><div style="flex:1;display:grid;gap:8px"><div class="skel-line" style="width:40%"></div><div class="skel-line" style="width:90%"></div></div></div>${'<div class="skel-line" style="height:16px"></div>'.repeat(5)}</article>`).join('');
+      box.innerHTML = Array.from({ length: 6 }, () => `<article class="p" aria-hidden="true"><div class="p-top"><div style="flex:1;display:grid;gap:8px"><div class="skel-line" style="width:40%"></div><div class="skel-line" style="width:90%"></div></div></div>${'<div class="skel-line" style="height:16px"></div>'.repeat(5)}</article>`).join('');
       return;
     }
     if (state.searchRan && !state.lastGroups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>No encontré nada con esa búsqueda</b>Probá con menos palabras o con la marca sola.</div>'; return; }
@@ -361,7 +358,7 @@
     box.innerHTML = groups.map((g) => {
       const q = cartQty(g.ean);
       return `<article class="p" data-ean="${esc(g.ean)}">
-        <div class="p-top">${thumb(g.image)}<div><div class="p-brand">${esc(g.brand)}</div><div class="p-name">${esc(g.name)}</div>${ownersFor(g.ean) ? '<span class="pill soft" style="margin-top:7px">Marca propia</span>' : ''}</div></div>
+        <div class="p-top"><div><div class="p-brand">${esc(g.brand)}</div><div class="p-name">${esc(g.name)}</div>${ownersFor(g.ean) ? '<span class="pill soft" style="margin-top:7px">Marca propia</span>' : ''}</div></div>
         <ul class="cmp">${cmpRows(g.ean)}</ul>
         <div class="p-foot">${q ? `<span class="in">${ic('check')}En tu lista</span>${stepper(g.ean, q)}` : `<button class="btn primary block" data-act="add" data-ean="${esc(g.ean)}">${ic('plus')}Agregar a la lista</button>`}</div>
       </article>`;
@@ -455,7 +452,7 @@
   function addToCart(ean) {
     const g = state.lastGroups.find((x) => x.ean === ean);
     const item = itemByEan(ean);
-    if (item) item.qty++; else if (g) state.cart.push({ ean, name: g.name, brand: g.brand, image: g.image, qty: 1 });
+    if (item) item.qty++; else if (g) state.cart.push({ ean, name: g.name, brand: g.brand, qty: 1 });
     cartChanged();
     fetchMissing([ean]).then(() => { renderResults(); renderSide(); renderDock(); }).catch(() => {});
   }
@@ -549,7 +546,7 @@
       <p class="foot-note">Precios de las webs públicas de cada cadena, con la sucursal por defecto. Pueden diferir de tu sucursal. Las promos (2x1, 2da al 70%, tarjeta) no se descuentan del total.</p></div>`;
   }
   function editList() {
-    return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row">${thumb(i.image)}<div class="nm">${esc(i.name)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
+    return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
       <div style="margin-top:12px">${state.confirmClear ? `<span class="sm">¿Vaciar toda la lista?</span> <button class="link" data-act="clear-yes">Sí, vaciar</button> · <button class="link" data-act="clear-no">Cancelar</button>` : `<button class="link" data-act="clear">Vaciar lista</button>`}</div>`;
   }
 
@@ -754,7 +751,7 @@
     save('checked', state.checked);
   });
 
-  // al cambiar los permisos de privacidad (fotos, mapa) se vuelve a dibujar lo que está en pantalla
+  // al cambiar los permisos de privacidad (mapa) se vuelve a dibujar lo que está en pantalla
   window.addEventListener('consent-change', () => {
     renderResults();
     if (state.view === 'plan') renderPlanView();

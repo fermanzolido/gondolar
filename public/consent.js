@@ -4,7 +4,7 @@
 // Opcional (apagado por defecto), porque el navegador le pide archivos a otro servidor, que ve la dirección IP:
 //   fonts  -> tipografías de Google Fonts
 //   maps   -> mapa: Leaflet (cdnjs / Cloudflare) y teselas de OpenStreetMap
-//   images -> fotos de productos, servidas por cada cadena de supermercados
+// (La app no muestra fotos de productos, así que no hay nada que pedirle a los servidores de las cadenas.)
 (() => {
   'use strict';
   const KEY = 'consent', VERSION = 1, MAX_AGE = 365 * 24 * 3600 * 1000;
@@ -36,11 +36,11 @@
 
   function save(choice) {
     const before = current || {};
-    current = { v: VERSION, at: Date.now(), fonts: !!choice.fonts, maps: !!choice.maps, images: !!choice.images };
+    current = { v: VERSION, at: Date.now(), fonts: !!choice.fonts, maps: !!choice.maps };
     try { localStorage.setItem(KEY, JSON.stringify(current)); } catch { /* sin acceso */ }
     close();
     // si se retiró un permiso, se recarga para que el navegador deje de usar ese recurso
-    if (['fonts', 'maps', 'images'].some((k) => before[k] && !current[k])) { location.reload(); return; }
+    if (['fonts', 'maps'].some((k) => before[k] && !current[k])) { location.reload(); return; }
     apply(); emit();
   }
 
@@ -67,12 +67,11 @@
       const cur = current || {};
       const custom = mode === 'prefs';
       box.innerHTML = `<h2 id="c-title">Tu privacidad</h2>
-        <p>Gondolar guarda tu lista, tus ajustes y tu ubicación <b>solo en este navegador</b>. Las tipografías, el mapa y las fotos se piden a otros servidores, que ven tu dirección IP. Vos elegís cuáles permitir; la app funciona igual sin ninguno. <a href="legal.html#privacidad">Más información</a></p>
+        <p>Gondolar guarda tu lista, tus ajustes y tu ubicación <b>solo en este navegador</b>. Las tipografías y el mapa se piden a otros servidores, que ven tu dirección IP. Vos elegís cuáles permitir; la app funciona igual sin ninguno. <a href="legal.html#privacidad">Más información</a></p>
         <div class="c-opts" ${custom ? '' : 'hidden'}>
           <div class="c-opt fixed"><span class="c-t"><b>Necesarias</b><small>Guardar tu lista, ajustes, ubicación y esta elección en tu navegador. Siempre activas.</small></span><span class="pill soft">Activas</span></div>
           ${sw('fonts', 'Tipografías', 'Se piden a Google Fonts (Google).', cur.fonts)}
           ${sw('maps', 'Mapa', 'Leaflet desde cdnjs (Cloudflare) y mapas de OpenStreetMap.', cur.maps)}
-          ${sw('images', 'Fotos de productos', 'Se piden a los servidores de cada supermercado.', cur.images)}
         </div>
         <div class="c-actions">
           <button class="btn primary" data-c="all">Aceptar todo</button>
@@ -89,7 +88,7 @@
     if (t) { e.preventDefault(); open(t.dataset.consent === 'wipe' ? 'wipe' : 'prefs'); return; }
     const b = e.target.closest('.consent [data-c]'); if (!b) return;
     const c = b.dataset.c;
-    if (c === 'all') save({ fonts: true, maps: true, images: true });
+    if (c === 'all') save({ fonts: true, maps: true });
     else if (c === 'none') save({});
     else if (c === 'custom') { box.querySelector('.c-opts').hidden = false; b.outerHTML = '<button class="btn" data-c="save">Guardar mi elección</button>'; }
     else if (c === 'save') { const v = {}; box.querySelectorAll('input[data-k]').forEach((i) => { v[i.dataset.k] = i.checked; }); save(v); }

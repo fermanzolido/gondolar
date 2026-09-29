@@ -19,8 +19,8 @@ cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al 
 - **Tu ubicación:** con tu dirección o el GPS busca la sucursal más cercana de cada cadena, calcula km y minutos en auto y
   completa el costo del viaje solo. Muestra un mapa y un botón "Cómo llegar".
 - **Lista para el súper:** tickets por tienda con casilleros para ir tildando, impresión y copiado para WhatsApp.
-- **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; tipografías, mapa y fotos de terceros
-  se cargan únicamente si lo permitís.
+- **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; las tipografías y el mapa de terceros
+  se cargan únicamente si lo permitís. No muestra fotos de productos ni logos de las cadenas.
 
 ## Cómo usarlo
 
@@ -86,7 +86,7 @@ los precios en tandas de hasta 24 combinaciones producto x tienda.
 
 Las consultas a las cadenas se hacen a pedido de quien usa la herramienta, con volumen bajo y guardando resultados unos
 minutos. La herramienta se identifica con su nombre (`Gondolar`) y la dirección de este repositorio; no finge ser un
-navegador. Si sos titular de una marca, imagen o sitio y querés que algo cambie o se quite, abrí un
+navegador. Si sos titular de una marca o sitio y querés que algo cambie o se quite, abrí un
 [issue](https://github.com/fermanzolido/gondolar/issues).
 
 Si forkeás el proyecto, respetá los términos de uso de los sitios que consultes y de los servicios de OpenStreetMap
@@ -95,9 +95,9 @@ Si forkeás el proyecto, respetá los términos de uso de los sitios que consult
 ## Privacidad
 
 Sin cuentas, sin publicidad, sin métricas ni cookies de seguimiento. Tu lista, tus ajustes y tu ubicación se guardan
-solo en tu navegador. Las tipografías (Google Fonts), el mapa (Leaflet + OpenStreetMap) y las fotos de productos
-(servidores de cada cadena) están apagados hasta que los aceptás, y podés cambiarlo cuando quieras. Detalle completo, con
-qué recibe cada servicio y tus derechos, en el [aviso legal y de privacidad](public/legal.html).
+solo en tu navegador. Las tipografías (Google Fonts) y el mapa (Leaflet + OpenStreetMap) están apagados hasta que los
+aceptás, y podés cambiarlo cuando quieras. Detalle completo, con qué recibe cada servicio y tus derechos, en el
+[aviso legal y de privacidad](public/legal.html).
 
 ## Créditos
 
