@@ -49,13 +49,15 @@ Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` 
 ## Cómo funciona
 
 ```
-SEPA (datos.produccion.gob.ar) ──► GitHub Actions, una vez por día ──► archivos estáticos en GitHub Pages ──► navegador
-                                     scripts/build_sepa.py                public/data/*.json                     (búsqueda y plan)
-                                                                                                                  │ solo direcciones,
-                                                            Cloudflare Worker (worker/ + lib/) ◄──────────────────┘ rutas y dólar
-                                                            OpenStreetMap (Nominatim, OSRM)
+SEPA (datos.produccion.gob.ar) ──► tu compu con IP argentina, 1 vez por día ──► release "datos" de GitHub ──► GitHub Pages ──► navegador
+                                        scripts/publish_datos.py                  datos.tar.gz             public/data/*.json   (búsqueda y plan)
+                                                                                                                                  │ solo direcciones,
+                                                                    Cloudflare Worker (worker/ + lib/) ◄──────────────────────────┘ rutas y dólar
+                                                                    OpenStreetMap (Nominatim, OSRM)
 ```
 
+- `scripts/publish_datos.py` — corre `build_sepa.py`, sube el resultado como adjunto del release `datos` y le pide a GitHub
+  Actions que republique la web. Se corre **desde una computadora con IP argentina** (ver más abajo por qué).
 - `scripts/build_sepa.py` — baja el ZIP diario de SEPA (~300 MB), unifica códigos de barras, limpia nombres y agrupa los
   precios por provincia (mediana de las sucursales de cada cadena). Genera `meta.json`, `names.json`, `branches.json` y un
   `prices/AR-X.json` por provincia (unos 9 MB comprimidos en total; cada persona baja ~2 MB). Si el formato oficial cambia y los
@@ -83,14 +85,23 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
    Te da una URL como `https://cuanto-sale-api.TU-SUBDOMINIO.workers.dev`.
 2. **Web en GitHub Pages.** Subí el proyecto a un repositorio. En *Settings → Pages* elegí *Source: GitHub Actions*.
    En *Settings → Secrets and variables → Actions → Variables* creá `API_BASE` con la URL del paso 1.
-   El flujo `.github/workflows/pages.yml` publica la web con cada `git push` a `main` **y todos los días a las 14:30
-   (hora argentina)**, cuando SEPA ya publicó los datos del día: descarga los datos, los procesa y despliega.
+   El flujo `.github/workflows/pages.yml` publica la web con cada `git push` a `main` y cada vez que se actualizan los datos:
+   trae el paquete de precios del release `datos`, corre las pruebas y despliega.
 3. **Cerrar la API a tu web.** En `wrangler.toml` poné `ALLOWED_ORIGIN = "https://TU-USUARIO.github.io"` y volvé a
    ejecutar `npx wrangler deploy`.
 4. *Opcional:* cargá los secrets `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID` para que la API se publique sola con
    cada push (`.github/workflows/worker.yml`).
 
-Si la descarga de SEPA falla un día, la publicación se cancela y la web sigue con los datos del día anterior.
+5. **Datos de precios (una vez por día).** El portal oficial de datos abiertos **rechaza con error 403 las conexiones que llegan
+   desde los servidores de GitHub** (salen desde Estados Unidos), así que los datos se procesan desde una computadora con IP
+   argentina. Con la sesión de `gh` iniciada:
+   ```bash
+   npm run publicar-datos     # descarga SEPA, lo procesa, lo sube al release "datos" y republica la web
+   ```
+   SEPA publica los datos del día alrededor de las 13:20 (hora argentina). Para automatizarlo en Windows:
+   `schtasks /create /tn "Gondolar datos" /sc daily /st 14:30 /tr "cmd /c cd /d C:utagondolar && npm run publicar-datos"`.
+   Si un día no se actualiza (computadora apagada, error de descarga), la web sigue funcionando con los datos anteriores y
+   muestra de qué día son.
 
 ## Limitaciones
 

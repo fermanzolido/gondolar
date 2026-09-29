@@ -1,11 +1,12 @@
 name: Publicar la web (GitHub Pages)
 
-# Se ejecuta con cada cambio en main y todos los días a las 17:30 UTC (14:30 en Argentina), cuando SEPA ya publicó los datos.
+# Se ejecuta con cada cambio en main y cuando se actualizan los datos.
+# Los datos de precios NO se descargan acá: el portal oficial de datos abiertos rechaza (403) las conexiones desde los
+# servidores de GitHub. Los procesa y sube scripts/publish_datos.py, desde una computadora con IP argentina, como
+# adjunto del release "datos"; después le pide a este flujo que republique la web.
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '30 17 * * *'
   workflow_dispatch:
 
 permissions:
@@ -35,8 +36,14 @@ jobs:
           npm test
           python test/test_build_sepa.py
 
-      - name: Descargar y procesar los datos abiertos de SEPA (Precios Claros)
-        run: python scripts/build_sepa.py --download --out public/data
+      - name: Traer los datos de precios ya procesados (release "datos")
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download datos --pattern datos.tar.gz --dir "$RUNNER_TEMP" --repo "$GITHUB_REPOSITORY"
+          tar -xzf "$RUNNER_TEMP/datos.tar.gz" -C public
+          ls -la public/data | head
+          node -e 'const m=require("./public/data/meta.json"); console.log("Datos de SEPA del", m.fecha, "-", m.productos, "productos"); if(!m.fecha||m.productos<40000) process.exit(1)'
 
       - name: Apuntar la web a tu API (variable API_BASE del repositorio)
         env:
