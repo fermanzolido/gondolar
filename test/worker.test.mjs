@@ -27,7 +27,7 @@ r = await post({ lat: 999, lon: 0, candidates: [] });
 assert.equal(r.status, 400);
 r = await post({ lat: -34.6, lon: -58.4, candidates: [{ lat: 'x', lon: 1 }] });
 assert.equal(r.status, 400);
-r = await post({ lat: -34.6, lon: -58.4, candidates: Array.from({ length: 31 }, () => ({ lat: -34.6, lon: -58.4 })) });
+r = await post({ lat: -34.6, lon: -58.4, candidates: Array.from({ length: 61 }, () => ({ lat: -34.6, lon: -58.4 })) });
 assert.equal(r.status, 400);
 assert.match((await r.json()).error, /Máximo/);
 r = await post({ lat: -34.6, lon: -58.4, candidates: [] });

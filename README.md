@@ -11,7 +11,10 @@ imprimís la lista dividida por tienda.
 
 ## Qué hace
 
-- **Compara 8 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima.
+- **Compara 14 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima (todo el país), más las regionales
+  Toledo (Mar del Plata), Mariano Max (Córdoba), Unicoop (Patagones y Viedma), California (Misiones) y Comodín (Jujuy), y
+  Farmacity como cadena opcional (es una farmacia, viene apagada). Las regionales se prenden solas si tienen sucursales en tu
+  provincia.
 - **Usa la base oficial SEPA** ([Precios Claros](https://datos.produccion.gob.ar/dataset/sepa-precios), Secretaría de Comercio
   de la Nación): precios que los comercios informan al Estado, actualizados todos los días. **No consulta los sitios de los
   supermercados.**

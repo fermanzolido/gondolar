@@ -129,5 +129,54 @@ class BuildSepa(unittest.TestCase):
         self.assertIn('validaciones', r.stderr + r.stdout)
 
 
+class CheckChains(unittest.TestCase):
+    """Las cadenas regionales se omiten (con aviso) si no vienen bien en SEPA; las principales frenan la publicación."""
+
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('build_sepa', SCRIPT)
+        cls.b = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.b)
+
+    def counters(self, suc, eans):
+        import collections
+        return collections.Counter(suc), {k: set(range(v)) for k, v in eans.items()}
+
+    def test_todas_bien(self):
+        chains = [dict(id='a'), dict(id='r', requerida=False, min_suc=2, min_eans=5)]
+        n_suc, seen = self.counters({'a': 50, 'r': 3}, {'a': 5000, 'r': 10})
+        ok, problemas, avisos = self.b.check_chains(chains, n_suc, seen)
+        self.assertEqual((ok, problemas, avisos), (['a', 'r'], [], []))
+
+    def test_regional_que_falla_se_omite_con_aviso(self):
+        chains = [dict(id='a'), dict(id='r', requerida=False, min_suc=2, min_eans=5)]
+        n_suc, seen = self.counters({'a': 50, 'r': 1}, {'a': 5000, 'r': 2})
+        ok, problemas, avisos = self.b.check_chains(chains, n_suc, seen)
+        self.assertEqual(ok, ['a'])
+        self.assertEqual(problemas, [])
+        self.assertEqual(len(avisos), 1)
+        self.assertIn('se omite', avisos[0])
+
+    def test_cadena_principal_que_falla_frena_todo(self):
+        chains = [dict(id='a'), dict(id='r', requerida=False, min_suc=2, min_eans=5)]
+        n_suc, seen = self.counters({'a': 2, 'r': 3}, {'a': 100, 'r': 10})
+        ok, problemas, avisos = self.b.check_chains(chains, n_suc, seen)
+        self.assertEqual(ok, ['r'])
+        self.assertEqual(len(problemas), 1)
+        self.assertIn('a:', problemas[0])
+
+    def test_las_cadenas_definidas_tienen_lo_necesario_para_la_app(self):
+        ids = [c['id'] for c in self.b.CHAINS]
+        self.assertEqual(len(ids), len(set(ids)))
+        siglas = [c['sigla'] for c in self.b.CHAINS]
+        self.assertEqual(len(siglas), len(set(siglas)), 'las siglas de los monogramas no pueden repetirse')
+        for c in self.b.CHAINS:
+            for k in ('id', 'sigla', 'name', 'color', 'web', 'cuit'):
+                self.assertTrue(c.get(k), (c['id'], k))
+        self.assertIn('farmacity', ids)
+        self.assertTrue(next(c for c in self.b.CHAINS if c['id'] == 'farmacity').get('optativa'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -26,14 +26,28 @@ UA = 'Gondolar/1.0 (+https://github.com/fermanzolido/gondolar; datos abiertos SE
 # Cadenas de la app. `cuit` identifica al comercio en SEPA; `banderas` filtra formatos (nombre de bandera en minúsculas).
 # Carrefour Express queda afuera: sus precios y su distancia no representan a las demás bocas de la cadena.
 CHAINS = [
-    dict(id='carrefour', name='Carrefour', color='#2563eb', web='https://www.carrefour.com.ar', cuit='30687310434', excluir=('express',)),
-    dict(id='jumbo', name='Jumbo', color='#16a34a', web='https://www.jumbo.com.ar', cuit='30590360763', incluir=('jumbo',)),
-    dict(id='disco', name='Disco', color='#9333ea', web='https://www.disco.com.ar', cuit='30590360763', incluir=('disco',)),
-    dict(id='vea', name='Vea', color='#0891b2', web='https://www.vea.com.ar', cuit='30590360763', incluir=('vea',)),
-    dict(id='dia', name='Día', color='#dc2626', web='https://www.supermercadosdia.com.ar', cuit='30685849751'),
-    dict(id='changomas', name='Changomás', color='#ca8a04', web='https://www.masonline.com.ar', cuit='30678138300'),
-    dict(id='coto', name='Coto', color='#db2777', web='https://www.cotodigital.com.ar', cuit='30548083156'),
-    dict(id='laanonima', name='La Anónima', color='#ea580c', web='https://www.laanonima.com.ar', cuit='30506730038', incluir=('la anonima',)),
+    dict(id='carrefour', sigla='Ca', name='Carrefour', color='#2563eb', web='https://www.carrefour.com.ar', cuit='30687310434', excluir=('express',)),
+    dict(id='jumbo', sigla='Ju', name='Jumbo', color='#16a34a', web='https://www.jumbo.com.ar', cuit='30590360763', incluir=('jumbo',)),
+    dict(id='disco', sigla='Di', name='Disco', color='#9333ea', web='https://www.disco.com.ar', cuit='30590360763', incluir=('disco',)),
+    dict(id='vea', sigla='Ve', name='Vea', color='#0891b2', web='https://www.vea.com.ar', cuit='30590360763', incluir=('vea',)),
+    dict(id='dia', sigla='Dí', name='Día', color='#dc2626', web='https://www.supermercadosdia.com.ar', cuit='30685849751'),
+    dict(id='changomas', sigla='Ch', name='Changomás', color='#ca8a04', web='https://www.masonline.com.ar', cuit='30678138300'),
+    dict(id='coto', sigla='Co', name='Coto', color='#db2777', web='https://www.cotodigital.com.ar', cuit='30548083156'),
+    dict(id='laanonima', sigla='La', name='La Anónima', color='#ea580c', web='https://www.laanonima.com.ar', cuit='30506730038', incluir=('la anonima',)),
+    # Cadenas regionales: si un día no vienen bien en SEPA se omiten (con un aviso) en vez de frenar la publicación.
+    dict(id='toledo', regional=True, sigla='To', name='Toledo', color='#0f766e', web='https://www.supertoledo.com', cuit='30551497492',
+         requerida=False, min_suc=10, min_eans=2000),
+    dict(id='marianomax', regional=True, sigla='MM', name='Mariano Max', color='#a21caf', web='https://www.mmax.com.ar', cuit='30616491780',
+         requerida=False, min_suc=5, min_eans=2000),
+    dict(id='unicoop', regional=True, sigla='Un', name='Unicoop', color='#475569', web='https://www.lacooperativa.com.ar', cuit='33529300099',
+         requerida=False, min_suc=1, min_eans=2000),
+    dict(id='california', regional=True, sigla='Cs', name='California', color='#be123c', web='https://www.californiasa.com.ar', cuit='30539523410',
+         requerida=False, min_suc=3, min_eans=1000),
+    dict(id='comodin', regional=True, sigla='Cm', name='Comodín', color='#92400e', web='https://www.supermercadoscomodin.com', cuit='30578411174',
+         requerida=False, min_suc=1, min_eans=300),
+    # Farmacia (no es un supermercado): viene apagada por defecto en la app.
+    dict(id='farmacity', sigla='Fa', name='Farmacity', color='#0284c7', web='https://www.farmacity.com', cuit='30692138747',
+         requerida=False, optativa=True, min_suc=50, min_eans=1000),
 ]
 PROVINCIAS = {
     'AR-A': 'Salta', 'AR-B': 'Buenos Aires', 'AR-C': 'Ciudad de Buenos Aires', 'AR-D': 'San Luis', 'AR-E': 'Entre Ríos',
@@ -48,6 +62,27 @@ MIN_EANS_POR_CADENA = 3000
 MIN_EANS_TOTAL = 40000
 if os.environ.get("SEPA_RELAX"):  # solo para las pruebas con datos de juguete
     MIN_SUCURSALES_POR_CADENA = MIN_EANS_POR_CADENA = MIN_EANS_TOTAL = 0
+
+
+
+def check_chains(chains, n_suc, seen):
+    """Devuelve (ids que pasan, problemas de cadenas requeridas, avisos de cadenas opcionales que se omiten)."""
+    ok, problemas, avisos = [], [], []
+    for c in chains:
+        cid = c['id']
+        fallas = []
+        if n_suc[cid] < c.get('min_suc', MIN_SUCURSALES_POR_CADENA):
+            fallas.append(f'solo {n_suc[cid]} sucursales')
+        if len(seen[cid]) < c.get('min_eans', MIN_EANS_POR_CADENA):
+            fallas.append(f'solo {len(seen[cid])} productos')
+        if not fallas:
+            ok.append(cid)
+        elif c.get('requerida', True):
+            problemas.append(f'{cid}: ' + ' y '.join(fallas))
+        else:
+            avisos.append(f'{cid}: ' + ' y '.join(fallas) + ' -> se omite en esta publicación')
+    return ok, problemas, avisos
+
 
 csv.field_size_limit(10 ** 8)
 BOM = bytes([0xEF, 0xBB, 0xBF])
@@ -239,13 +274,10 @@ def main():
     seen = {ch: set() for ch in order}
     for (prov, ch, ean) in prices:
         seen[ch].add(ean)
-    problemas = []
-    for c in order:
-        if n_suc[c] < MIN_SUCURSALES_POR_CADENA:
-            problemas.append(f'{c}: solo {n_suc[c]} sucursales')
-        if len(seen[c]) < MIN_EANS_POR_CADENA:
-            problemas.append(f'{c}: solo {len(seen[c])} productos')
-    total_eans = len({e for s in seen.values() for e in s})
+    keep, problemas, avisos = check_chains(CHAINS, n_suc, seen)
+    for a in avisos:
+        log('AVISO:', a)
+    total_eans = len({e for ch in keep for e in seen[ch]})
     if total_eans < MIN_EANS_TOTAL:
         problemas.append(f'solo {total_eans} productos en total')
     if problemas:
@@ -261,10 +293,14 @@ def main():
         with open(os.path.join(out, path), 'w', encoding='utf-8') as f:
             json.dump(obj, f, ensure_ascii=False, separators=(',', ':'))
 
+    idx = {ch: i for i, ch in enumerate(keep)}   # posición de cada cadena en los archivos de salida
+    branches = [[idx[order[b[0]]]] + b[1:] for b in branches if order[b[0]] in idx]
     tables = collections.defaultdict(dict)
     for (prov, ch, ean), ps in prices.items():
-        row = tables[prov].setdefault(ean, [None] * len(order))
-        row[order.index(ch)] = round(statistics.median(ps))
+        if ch not in idx:
+            continue
+        row = tables[prov].setdefault(ean, [None] * len(keep))
+        row[idx[ch]] = round(statistics.median(ps))
     for prov, t in tables.items():
         dump(f'prices/{prov}.json', t)
 
@@ -279,16 +315,18 @@ def main():
         cants = collections.Counter(v[2] for v in variantes if v[2])
         cant = cants.most_common(1)[0][0] if cants else ''
         nombres[ean] = (pretty(desc), pretty(marca), cant)
-    eans = sorted(nombres)
+    con_precio = {e for t in tables.values() for e in t}
+    eans = sorted(e for e in nombres if e in con_precio)
     dump('names.json', {'e': eans, 'n': [nombres[e][0] for e in eans], 'm': [nombres[e][1] for e in eans], 'q': [nombres[e][2] for e in eans]})
     dump('branches.json', branches)
     dump('meta.json', {
         'v': 1, 'fecha': fecha, 'generado': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'fuente': 'Precios Claros – Base SEPA. Secretaría de Comercio de la Nación (datos.produccion.gob.ar)',
         'licencia': 'Creative Commons Atribución 4.0', 'productos': len(eans),
-        'cadenas': [{k: c[k] for k in ('id', 'name', 'color', 'web')} for c in CHAINS],
+        'cadenas': [dict({k: c[k] for k in ('id', 'sigla', 'name', 'color', 'web')}, **{k: True for k in ('optativa', 'regional') if c.get(k)})
+                    for c in CHAINS if c['id'] in idx],
         'provincias': {p: {'nombre': PROVINCIAS[p], 'productos': len(tables[p]),
-                           'sucursales': dict(n_suc_prov[p])} for p in sorted(tables)},
+                           'sucursales': {ch: n for ch, n in n_suc_prov[p].items() if ch in idx}} for p in sorted(tables)},
     })
     total = sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fs in os.walk(out) for f in fs)
     log(f'Listo en {time.time() - t0:.0f}s: {len(eans)} productos, {len(branches)} sucursales, '

@@ -59,14 +59,31 @@
   const cfg = (id) => {
     const st = state.settings.stores[id] || (state.settings.stores[id] = {});
     const s = storeById(id) || {};
-    if (st.enabled === undefined) st.enabled = s.defaultEnabled !== false;
     if (st.km === undefined) st.km = 4;
     if (st.min === undefined) st.min = 25;
     if (st.mandatory === undefined) st.mandatory = false;
     if (st.manual === undefined) st.manual = false;   // true = el usuario cargó km/min a mano
     return st;
   };
-  const enabledStores = () => state.stores.filter((s) => cfg(s.id).enabled);
+  // Una tienda está activa si la persona la prendió. Si nunca tocó el interruptor:
+  //  - las cadenas de todo el país se prenden solas cuando tienen sucursales en la provincia elegida;
+  //  - las regionales (Toledo, Unicoop...) solo cuando hay una sucursal cerca de tu ubicación cargada;
+  //  - las opcionales (farmacias) quedan apagadas.
+  const explicit = (id) => state.settings.stores[id] && state.settings.stores[id].enabled;
+  const wanted = (id) => {
+    if (explicit(id) !== undefined) return explicit(id);
+    const s = storeById(id), p = provinces()[state.settings.prov];
+    return !!s && !s.optativa && !!p && (p.sucursales[id] || 0) > 0;
+  };
+  const isOn = (id) => {
+    const s = storeById(id);
+    if (explicit(id) !== undefined || !s || !s.regional) return wanted(id);
+    return wanted(id) && !!state.home && !!branchOf(id);
+  };
+  // Con la ubicación cargada, una cadena sin ninguna sucursal cerca no entra en la comparación (salvo que cargues los km a mano).
+  const usable = (id) => !(state.home && branchOf(id) === null && !cfg(id).manual);
+  const enabledStores = () => state.stores.filter((s) => isOn(s.id) && usable(s.id));
+  const sigla = (s) => s.sigla || s.name.slice(0, 2);
   const tripParts = (km, min) => {
     const g = state.settings;
     return { fuel: Math.round((km * g.consumo / 100) * g.nafta), time: Math.round((min / 60) * g.horaValor) };
@@ -89,14 +106,14 @@
     c.min = Math.round(b.driveMin * 2 + state.settings.compraMin);
   }
   const afterTripChange = () => {
-    state.selectedK = null; persist(); renderSide(); renderDock();
+    state.selectedK = null; persist(); renderStoreChips(); renderResults(); renderSide(); renderDock();
     if (state.view === 'trip') renderTrip();
     if (state.view === 'plan') renderPlanView();
   };
   async function fetchBranches(force = false) {
     if (!state.home) return;
     if (state.branches.key !== homeKey()) state.branches = { key: homeKey(), byStore: {} };
-    const need = enabledStores().map((s) => s.id).filter((id) => force || state.branches.byStore[id] === undefined);
+    const need = state.stores.filter((s) => wanted(s.id)).map((s) => s.id).filter((id) => force || state.branches.byStore[id] === undefined);
     if (!need.length) { need.forEach(applyBranch); return; }
     state.locating = true; state.branchError = ''; if (state.view === 'trip') renderTrip();
     try {
@@ -157,7 +174,7 @@
   const cartQty = (ean) => (state.cart.find((i) => i.ean === ean) || {}).qty || 0;
   const itemByEan = (ean) => state.cart.find((i) => i.ean === ean);
   const offerOf = (ean, id) => state.prices[ean]?.[id];
-  const mk = (id, small) => { const s = storeById(id); return s ? `<span class="mk${small ? ' sm' : ''}" style="--c:${s.color}" title="${esc(s.name)}">${esc(s.name.slice(0, 2))}</span>` : ''; };
+  const mk = (id, small) => { const s = storeById(id); return s ? `<span class="mk${small ? ' sm' : ''}" style="--c:${s.color}" title="${esc(s.name)}">${esc(sigla(s))}</span>` : ''; };
   const who = (id) => `${mk(id, true)}${esc(storeById(id).name)}`;
 
   // ---------- marca propia ----------
@@ -213,6 +230,7 @@
     state.settings.prov = prov; persist();
     await loadTable();
     state.selectedK = null;
+    renderStoreChips(); fetchBranches();
     refreshMoney();
   }
   // deja cargados los precios de los productos que se muestran o están en la lista
@@ -342,7 +360,7 @@
   }
   function renderStoreChips() {
     $('#storeChips').innerHTML = `<span class="eyebrow">Comparar en</span>` + state.stores.map((s) =>
-      `<button type="button" class="chip" data-store-toggle="${s.id}" aria-pressed="${cfg(s.id).enabled}" title="${cfg(s.id).enabled ? 'Dejar de comparar' : 'Comparar'} ${esc(s.name)}"><span class="mk sm" style="--c:${s.color}">${esc(s.name.slice(0, 2))}</span>${esc(s.name)}</button>`).join('');
+      `<button type="button" class="chip" data-store-toggle="${s.id}" aria-pressed="${isOn(s.id)}"${isOn(s.id) && !usable(s.id) ? ' data-far="1"' : ''} title="${isOn(s.id) ? 'Dejar de comparar' : 'Comparar'} ${esc(s.name)}${s.optativa ? ' (farmacia, opcional)' : ''}${s.regional && !state.home && explicit(s.id) === undefined ? ' (regional: cargá tu ubicación para ver si tenés una cerca)' : ''}${isOn(s.id) && !usable(s.id) ? '. No tiene sucursales cerca de tu ubicación' : ''}"><span class="mk sm" style="--c:${s.color}">${esc(sigla(s))}</span>${esc(s.name)}</button>`).join('');
   }
 
   function cmpRows(ean) {
@@ -681,7 +699,7 @@
     enabledStores().forEach((s) => {
       const b = branchOf(s.id); if (!b) return;
       pts.push([b.lat, b.lon]);
-      L.marker([b.lat, b.lon], { icon: L.divIcon({ className: 'pin-wrap', html: `<div class="pin" style="--c:${s.color}"><span>${esc(s.name.slice(0, 2))}</span></div>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
+      L.marker([b.lat, b.lon], { icon: L.divIcon({ className: 'pin-wrap', html: `<div class="pin" style="--c:${s.color}"><span>${esc(sigla(s))}</span></div>`, iconSize: [30, 30], iconAnchor: [15, 15] }) })
         .bindPopup(`<b>${esc(s.name)}</b><br>${esc(b.address || b.name)}<br>${kmText(b.driveKm)} km · ${Math.round(b.driveMin)} min`).addTo(map);
     });
     if (pts.length > 1) map.fitBounds(pts, { padding: [36, 36], maxZoom: 15 });
@@ -703,8 +721,8 @@
         </div><div class="example" id="tripExample">${exampleText()}</div></div></section>
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tiendas</h2><p>Activá donde comprás. Km y minutos se calculan solos desde tu ubicación (ida y vuelta, con el tiempo dentro del súper); si querés, corregilos a mano.</p></div></div>
         <div class="rank tbl-wrap"><div class="srow srow-h"><span>Usar</span><span>Tienda</span><span>Km ida y vuelta</span><span>Minutos</span><span>Voy sí o sí</span><span style="text-align:right">Viaje</span></div>
-        ${state.stores.map((s) => { const c = cfg(s.id); return `<div class="srow${c.enabled ? '' : ' off'}" data-row="${s.id}">
-          <label><input class="sw" type="checkbox" data-store="${s.id}" data-field="enabled" ${c.enabled ? 'checked' : ''} aria-label="Usar ${esc(s.name)}"></label>
+        ${state.stores.map((s) => { const c = cfg(s.id); return `<div class="srow${isOn(s.id) ? '' : ' off'}" data-row="${s.id}">
+          <label><input class="sw" type="checkbox" data-store="${s.id}" data-field="enabled" ${isOn(s.id) ? 'checked' : ''} aria-label="Usar ${esc(s.name)}"></label>
           <div class="who">${mk(s.id)}<div>${esc(s.name)}${s.note ? ` <span class="xs mute">${esc(s.note)}</span>` : ''}<small data-branch="${s.id}">${branchNote(s.id)}</small></div></div>
           <label class="inp f-km"><input type="number" min="0" step="0.5" data-store="${s.id}" data-field="km" value="${c.km}" aria-label="Kilómetros ${esc(s.name)}"><em>km</em></label>
           <label class="inp f-min"><input type="number" min="0" step="5" data-store="${s.id}" data-field="min" value="${c.min}" aria-label="Minutos ${esc(s.name)}"><em>min</em></label>
@@ -746,7 +764,7 @@
     if (cb) { setCurrency(cb.dataset.cur); return; }
     const tog = e.target.closest('[data-store-toggle]');
     if (tog) {
-      const c = cfg(tog.dataset.storeToggle); c.enabled = !c.enabled; persist();
+      const c = cfg(tog.dataset.storeToggle); c.enabled = !isOn(tog.dataset.storeToggle); persist();
       renderStoreChips(); renderResults(); renderSide(); renderDock();
       if (c.enabled) fetchBranches();
       return;
@@ -813,7 +831,7 @@
       b.textContent = 'No pude cargar los precios oficiales (' + e.message + '). Si estás en tu computadora, ejecutá "npm run datos" una vez y volvé a abrir la app.';
       return;
     }
-    state.stores = state.data.cadenas.map((c) => ({ ...c, defaultEnabled: true }));
+    state.stores = state.data.cadenas.map((c) => ({ ...c }));
     if (!provinces()[state.settings.prov]) state.settings.prov = 'AR-C';
     try { localStorage.removeItem('branches'); } catch { /* sin acceso */ } // caché vieja de sucursales de OpenStreetMap
     state.cart.forEach((i) => { state.meta[i.ean] = { brand: i.brand, name: i.name }; });
