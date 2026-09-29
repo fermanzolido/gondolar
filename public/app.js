@@ -292,7 +292,9 @@
     return html;
   }
   const stepper = (ean, q, cls = '') => `<div class="stepper ${cls}"><button data-act="dec" data-ean="${esc(ean)}" aria-label="Quitar uno">${ic('minus')}</button><output aria-label="Cantidad">${q}</output><button data-act="inc" data-ean="${esc(ean)}" aria-label="Agregar uno">${ic('plus')}</button></div>`;
-  const thumb = (src) => `<div class="p-img">${src ? `<img src="${esc(safeUrl(src))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</div>`;
+  // Las fotos las sirve cada supermercado: solo se piden si la persona lo permitió (ver consent.js).
+  const imagesAllowed = () => !!(window.Consent && window.Consent.allows('images'));
+  const thumb = (src) => `<div class="p-img">${src && imagesAllowed() ? `<img src="${esc(safeUrl(src))}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ''}</div>`;
 
   // ---------- filtros de resultados ----------
   const niceBrand = (b) => { const t = String(b || '').trim(); return t && t === t.toUpperCase() ? t.toLowerCase().replace(/(^|\s)\S/g, (c) => c.toUpperCase()) : t; };
@@ -624,7 +626,13 @@
   function initMap() {
     const el = $('#map'); if (!el) return;
     if (map) { map.remove(); map = null; }
-    if (!window.L) { el.innerHTML = '<div class="map-off">No pude cargar el mapa (¿sin internet?). Igual podés ver las distancias en la lista.</div>'; return; }
+    if (!window.L) {
+      const allowed = !!(window.Consent && window.Consent.allows('maps'));
+      el.innerHTML = allowed
+        ? '<div class="map-off">No pude cargar el mapa (¿sin internet?). Igual podés ver las distancias en la lista.</div>'
+        : '<div class="map-off"><div>El mapa se descarga de OpenStreetMap y Cloudflare, que verían tu dirección IP.<br>Las distancias de abajo se calculan igual.<div style="margin-top:12px"><button class="btn sm" data-consent="prefs">Permitir el mapa</button></div></div></div>';
+      return;
+    }
     const h = state.home;
     map = L.map(el, { scrollWheelZoom: false }).setView([h.lat, h.lon], 13);
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '© OpenStreetMap' }).addTo(map);
@@ -744,6 +752,13 @@
     if (!k) return;
     if (e.target.checked) state.checked[k] = true; else delete state.checked[k];
     save('checked', state.checked);
+  });
+
+  // al cambiar los permisos de privacidad (fotos, mapa) se vuelve a dibujar lo que está en pantalla
+  window.addEventListener('consent-change', () => {
+    renderResults();
+    if (state.view === 'plan') renderPlanView();
+    if (state.view === 'trip') renderTrip();
   });
 
   // ---------- inicio ----------

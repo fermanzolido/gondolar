@@ -4,11 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Cuánto Sale</title>
+  <meta name="description" content="Compará precios de supermercados argentinos, armá tu lista y mirá dónde conviene comprar cada cosa, con el costo del viaje incluido. Proyecto independiente, sin fines de lucro.">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
   <link rel="icon" href="favicon.svg">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400..700&display=swap">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <!-- Tipografías, mapa y fotos se cargan solo si la persona lo permite (ver consent.js). -->
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="v-search">
@@ -33,12 +32,22 @@
       <main id="view"></main>
       <aside class="side" id="side" aria-label="Tu lista"></aside>
     </div>
+    <footer class="site-foot">
+      <p>Cuánto Sale es un proyecto independiente y sin fines de lucro. No tiene relación con Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto ni ninguna otra cadena: sus nombres y marcas pertenecen a sus dueños y se mencionan solo para identificar dónde se consulta cada precio. Los precios son orientativos, pueden cambiar o no coincidir con tu sucursal, y no son una oferta de venta.</p>
+      <nav aria-label="Información legal">
+        <a href="legal.html">Aviso legal y privacidad</a>
+        <button type="button" class="link" data-consent="prefs">Preferencias de privacidad</button>
+        <button type="button" class="link" data-consent="wipe">Borrar mis datos</button>
+        <a href="https://github.com/fermanzolido/cuanto-sale" target="_blank" rel="noopener">Código abierto (MIT)</a>
+        <a href="https://github.com/fermanzolido/cuanto-sale/issues" target="_blank" rel="noopener">Reportar un problema</a>
+      </nav>
+    </footer>
   </div>
 
   <div class="dock no-print" id="dock"></div>
   <div id="printArea" class="print-only"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+  <script src="consent.js"></script>
   <script src="config.js"></script>
   <script src="optimizer.js"></script>
   <script src="app.js"></script>
