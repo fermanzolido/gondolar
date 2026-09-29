@@ -98,8 +98,15 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
    ```bash
    npm run publicar-datos     # descarga SEPA, lo procesa, lo sube al release "datos" y republica la web
    ```
-   SEPA publica los datos del día alrededor de las 13:20 (hora argentina). Para automatizarlo en Windows:
-   `schtasks /create /tn "Gondolar datos" /sc daily /st 14:30 /tr "cmd /c cd /d C:utagondolar && npm run publicar-datos"`.
+   SEPA publica los datos del día alrededor de las 13:20 (hora argentina). Para automatizarlo en Windows, creá una tarea
+   programada que ejecute `scriptsactualizar-datos.bat` (deja un registro en `%LOCALAPPDATA%Gondolarpublicar-datos.log`).
+   Desde PowerShell, oculta y a las 14:30 (se pone al día si la computadora estaba apagada):
+   ```powershell
+   $bat = (Resolve-Path scriptsactualizar-datos.bat).Path
+   $accion = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless `"$bat`"" -WorkingDirectory (Get-Location).Path
+   $ajustes = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+   Register-ScheduledTask -TaskName 'Gondolar - actualizar datos' -Action $accion -Trigger (New-ScheduledTaskTrigger -Daily -At '14:30') -Settings $ajustes
+   ```
    Si un día no se actualiza (computadora apagada, error de descarga), la web sigue funcionando con los datos anteriores y
    muestra de qué día son.
 
