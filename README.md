@@ -3,7 +3,7 @@
 Comparador de precios de supermercados argentinos. Armás tu lista, y la app te dice **en qué súper conviene comprar cada
 cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al final imprimís la lista dividida por tienda.
 
-**[Probarlo online →](https://fermanzolido.github.io/cuanto-sale/)** · Gratis, sin cuentas, sin publicidad.
+**[Probarlo online →](https://fermanzolido.github.io/gondolar/)** · Gratis, sin cuentas, sin publicidad.
 
 > Proyecto personal e independiente. No tiene relación con ninguna cadena de supermercados.
 > Los precios son orientativos. Ver el [aviso legal y de privacidad](public/legal.html).
@@ -24,13 +24,13 @@ cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al 
 
 ## Cómo usarlo
 
-**Online:** entrá a https://fermanzolido.github.io/cuanto-sale/. La primera vez, cargá tu dirección en *Viaje y tiendas*.
+**Online:** entrá a https://fermanzolido.github.io/gondolar/. La primera vez, cargá tu dirección en *Viaje y tiendas*.
 
 **En tu computadora** (necesita [Node.js](https://nodejs.org) 18 o superior, sin dependencias que instalar):
 
 ```bash
-git clone https://github.com/fermanzolido/cuanto-sale.git
-cd cuanto-sale
+git clone https://github.com/fermanzolido/gondolar.git
+cd gondolar
 npm start          # o doble clic en iniciar.bat (Windows)
 ```
 
@@ -87,7 +87,7 @@ los precios en tandas de hasta 24 combinaciones producto x tienda.
 Las consultas a las cadenas se hacen a pedido de quien usa la herramienta, con volumen bajo y guardando resultados unos
 minutos. La herramienta se identifica con su nombre (`Gondolar`) y la dirección de este repositorio; no finge ser un
 navegador. Si sos titular de una marca, imagen o sitio y querés que algo cambie o se quite, abrí un
-[issue](https://github.com/fermanzolido/cuanto-sale/issues).
+[issue](https://github.com/fermanzolido/gondolar/issues).
 
 Si forkeás el proyecto, respetá los términos de uso de los sitios que consultes y de los servicios de OpenStreetMap
 ([política de uso](https://operations.osmfoundation.org/policies/)).
