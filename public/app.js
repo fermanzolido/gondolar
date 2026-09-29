@@ -28,7 +28,7 @@
   const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
 
   // ---------- persistencia ----------
-  const DEFAULT_SETTINGS = { nafta: 1700, consumo: 10, horaValor: 3000, compraMin: 20, prov: 'AR-C', stores: {} };
+  const DEFAULT_SETTINGS = { nafta: 1700, consumo: 10, horaValor: 3000, compraMin: 20, prov: 'AR-C', stores: {}, promos: true, medios: [], dia: 'hoy' };
   const BRANCH_KEY = 'branches2'; // sucursales oficiales de SEPA (las de antes venían de OpenStreetMap y ya no se usan)
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* modo privado */ } };
@@ -41,6 +41,8 @@
     prices: {},                               // ean -> tienda -> oferta { store, ean, price, url } | null (esa cadena no lo informa)
     data: null,                               // meta.json de los datos de SEPA (fecha, cadenas, provincias)
     table: null,                              // precios de la provincia elegida: ean -> [precio por cadena]
+    promoTable: null,                         // promociones vigentes de esa provincia (ver Data.promos)
+    bank: null,                               // promociones de bancos y billeteras (promos-bancos.json, cargadas a mano)
     dataError: '',
     view: 'search', selectedK: null,
     filters: { brands: new Set(), min: '', max: '', sort: 'rel', comparable: false, allBrands: false },
@@ -213,19 +215,34 @@
   function derive(ean) {
     const row = state.table && state.table[ean];
     const cur = state.prices[ean] = {};
-    state.stores.forEach((s, i) => { const p = row && row[i]; cur[s.id] = p ? { store: s.id, ean, price: p, url: s.web } : null; });
+    const promos = (state.promoTable && state.promoTable.p[ean]) || [];
+    const hoy = todayIso();
+    state.stores.forEach((s, i) => {
+      const p = row && row[i];
+      if (!p) { cur[s.id] = null; return; }
+      const o = { store: s.id, ean, price: p, list: p, url: s.web, promo: null, aviso: null };
+      for (const [ci, precio, pct, hasta, tipo, ti, frac] of promos) {
+        if (ci !== i || (hasta && hasta < hoy)) continue;
+        const info = { price: precio, pct, hasta, tipo, frac, text: state.promoTable.t[ti] || '' };
+        if (tipo === 0 && precio < p) { if (!o.promo || precio < o.promo.price) o.promo = info; } else if (tipo !== 0 && !o.aviso) o.aviso = info;
+      }
+      // La promoción baja el precio solo si el comercio la informa en al menos la mitad de sus sucursales de la provincia
+      if (o.promo && state.settings.promos && o.promo.frac >= 50) { o.price = o.promo.price; o.promo.applied = true; }
+      cur[s.id] = o;
+    });
   }
+  const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
   const deriveAll = () => { state.prices = {}; [...state.cart.map((i) => i.ean), ...state.lastGroups.map((g) => g.ean)].forEach(derive); };
 
   async function loadTable() {
     try {
-      state.table = await Data.prices(state.settings.prov);
+      [state.table, state.promoTable] = await Promise.all([Data.prices(state.settings.prov), Data.promos(state.settings.prov)]);
       state.dataError = '';
     } catch (e) {
-      state.table = null; state.dataError = 'No pude cargar los precios de ' + provName(state.settings.prov) + ' (' + e.message + ').';
+      state.table = null; state.promoTable = null; state.dataError = 'No pude cargar los precios de ' + provName(state.settings.prov) + ' (' + e.message + ').';
     }
     const b = $('#banner'); b.hidden = !state.dataError; b.textContent = state.dataError;
-    deriveAll();
+    deriveAll(); renderProvRow();
   }
   // cambia la provincia de los precios (a mano o desde la ubicación) y vuelve a dibujar lo que muestra importes
   async function setProvince(prov) {
@@ -358,13 +375,32 @@
   function renderProvRow() {
     const box = $('#provRow'); if (!box) return;
     const opts = Object.entries(provinces()).sort((a, b) => a[1].nombre.localeCompare(b[1].nombre, 'es'));
+    const hayPromos = state.promoTable && Object.keys(state.promoTable.p).length > 0;
     box.innerHTML = `<span class="eyebrow">Precios de</span><select id="provSel" class="select" aria-label="Provincia de los precios">${opts.map(([code, p]) => `<option value="${code}"${code === state.settings.prov ? ' selected' : ''}>${esc(p.nombre)}</option>`).join('')}</select>
-      <span class="xs mute">Datos oficiales de SEPA. ${state.home && state.home.prov === state.settings.prov ? 'Tomada de tu ubicación.' : 'Cambiá la provincia si comprás en otra.'}</span>`;
+      <span class="xs mute">Datos oficiales de SEPA. ${state.home && state.home.prov === state.settings.prov ? 'Tomada de tu ubicación.' : 'Cambiá la provincia si comprás en otra.'}</span>
+      ${hayPromos ? `<label class="fld-inline" title="Usa el precio promocional que informan los comercios (sin medio de pago ni cantidad mínima)"><input id="promoChk" class="sw" type="checkbox"${state.settings.promos ? ' checked' : ''}><span class="sm">Con promociones</span></label>` : ''}`;
   }
   function renderStoreChips() {
     $('#storeChips').innerHTML = `<span class="eyebrow">Comparar en</span>` + state.stores.map((s) =>
       `<button type="button" class="chip" data-store-toggle="${s.id}" aria-pressed="${isOn(s.id)}"${isOn(s.id) && !usable(s.id) ? ' data-far="1"' : ''} title="${isOn(s.id) ? 'Dejar de comparar' : 'Comparar'} ${esc(s.name)}${s.optativa ? ' (farmacia, opcional)' : ''}${s.regional && !state.home && explicit(s.id) === undefined ? ' (regional: cargá tu ubicación para ver si tenés una cerca)' : ''}${isOn(s.id) && !usable(s.id) ? '. No tiene sucursales cerca de tu ubicación' : ''}"><span class="mk sm" style="--c:${s.color}">${esc(sigla(s))}</span>${esc(s.name)}</button>`).join('');
   }
+
+  // ---------- promociones (SEPA) ----------
+  const shortDate = (iso) => (iso ? iso.slice(8, 10) + '/' + iso.slice(5, 7) : '');
+  function promoTitle(o) {
+    const x = o.promo || o.aviso;
+    if (!x) return '';
+    const hasta = x.hasta && !/\d\/\d/.test(x.text) ? ` (hasta el ${shortDate(x.hasta)})` : '';
+    const leyenda = x.text ? `${x.text}${hasta}. ` : '';
+    if (o.promo && o.promo.applied) return `Promo −${x.pct}%: ${leyenda}Precio de góndola: ${fmtArs(o.list)}.`;
+    if (o.promo) return `${leyenda}Sería ${fmtArs(x.price)} (−${x.pct}%), pero ${state.settings.promos ? `solo figura en el ${x.frac}% de las sucursales de la cadena en tu provincia` : 'tenés las promociones apagadas'}: no se incluye en el precio.`;
+    return `${leyenda}${x.tipo === 1 ? 'Pide un medio de pago o beneficio específico' : 'Hay que comprar varias unidades'}: no se incluye en el precio.`;
+  }
+  const promoChip = (o) => {
+    if (!o.promo && !o.aviso) return '';
+    const applied = o.promo && o.promo.applied;
+    return `<span class="off${applied ? '' : ' soft'}" title="${esc(promoTitle(o))}">${applied ? '−' + o.promo.pct + '%' : o.promo ? 'promo*' : '+promo'}</span>`;
+  };
 
   function cmpRows(ean) {
     const by = state.prices[ean] || {};
@@ -381,7 +417,7 @@
       const sub = i === 0 ? (have.length > 1 ? 'más barato' : '') : diff < 0.5 ? 'igual' : `+${fmt(diff)}`;
       return `<li class="row${i === 0 ? ' best' : ''}${sel ? ' chosen' : ''}">
         <a class="who" href="${esc(safeUrl(o.url))}" target="_blank" rel="noopener" title="Ir a la web de ${esc(s.name)}">${mk(s.id, true)}<span class="n">${esc(s.name)}</span></a>
-        <span class="bar-track"><span class="bar-fill" style="width:${Math.max(6, (o.price / max) * 100).toFixed(1)}%"></span></span>
+        <span class="mid"><span class="bar-track"><span class="bar-fill" style="width:${Math.max(6, (o.price / max) * 100).toFixed(1)}%"></span></span>${promoChip(o)}</span>
         <span class="amt"><b>${fmt(o.price)}</b><small>${sub}</small></span>
         <button type="button" class="pick${sel ? ' on' : ''}" data-act="pick-store" data-ean="${esc(ean)}" data-store="${esc(s.id)}" aria-pressed="${sel}" aria-label="${esc(tip)}" title="${esc(tip)}">${ic(sel ? 'check' : 'plus')}</button>
       </li>`;
@@ -533,7 +569,7 @@
   }
 
   // Atribución que exige la licencia CC BY 4.0 de los datos, y aclaración de qué se hizo con ellos.
-  const sepaNote = () => `Fuente: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación (licencia CC BY 4.0), datos del ${dataDate() ? fmtDate(dataDate()) : 'último día publicado'}. Gondolar los agrupó por provincia usando la mediana de las sucursales de cada cadena. Son precios de góndola informados por los comercios: pueden diferir en tu sucursal y no incluyen promociones.`;
+  const sepaNote = () => `Fuente: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación (licencia CC BY 4.0), datos del ${dataDate() ? fmtDate(dataDate()) : 'último día publicado'}. Gondolar los agrupó por provincia usando la mediana de las sucursales de cada cadena. Son precios de góndola informados por los comercios: pueden diferir en tu sucursal. ${state.settings.promos ? 'Incluyen las promociones vigentes que informan los comercios para cualquier persona (sin medio de pago ni cantidad mínima), marcadas con su descuento: consultá si rigen en tu sucursal.' : 'No incluyen promociones.'}`;
 
   // ---------- Plan ----------
   function renderPlanView() {
@@ -583,7 +619,7 @@
             const o = offerOf(l.ean, id), key = `${id}|${l.ean}`;
             const other = enabledStores().filter((s) => s.id !== id && offerOf(l.ean, s.id)).map((s) => ({ s, p: offerOf(l.ean, s.id).price })).sort((a, b) => a.p - b.p)[0];
             return `<li class="r-line"><input class="cb" type="checkbox" data-ck="${esc(key)}" aria-label="Ya lo agregué: ${esc(itemByEan(l.ean).name)}" ${state.checked[key] ? 'checked' : ''}>
-              <div class="nm">${esc(itemByEan(l.ean).name)}</div>
+              <div class="nm">${esc(itemByEan(l.ean).name)} ${promoChip(o)}</div>
               <div class="pr">${fmt(l.price * l.qty)}${l.qty > 1 ? `<small>${l.qty} × ${fmt(l.price)}</small>` : ''}</div>
               <div class="alt">${chosenStore(itemByEan(l.ean)) === id ? (other && other.p < l.price ? `Tu elección · más barato en ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (−${fmt(l.price - other.p)})` : 'Tu elección · además es el más barato') : other ? `Otra opción: ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (${other.p >= l.price ? '+' : '−'}${fmt(Math.abs(other.p - l.price))})` : 'Solo la tiene esta tienda'}</div></li>`;
           }).join('')}</ul>
@@ -609,7 +645,7 @@
           <p>${w.worth ? `Te queda a favor ${fmt(w.saving - w.trip)}.` : `Perdés ${fmt(w.trip - w.saving)} si vas solo por esto.`}</p></div>`;
       }).join('')}</div></section>` : '';
 
-    box.innerHTML = `<div class="narrow">${head}${verdict}${missing}${opts}${receipts}${rank}${worth}
+    box.innerHTML = `<div class="narrow">${head}${verdict}${missing}${opts}${receipts}${bankSection(chosen)}${rank}${worth}
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tu lista</h2></div></div>${editList()}</section>
       <p class="foot-note">${sepaNote()}${rateNote() ? ' ' + esc(rateNote()) : ''}</p></div>`;
   }
@@ -622,6 +658,69 @@
   function editList() {
     return `<div class="edit-list">${state.cart.map((i) => `<div class="edit-row"><div class="nm">${esc(i.name)}${buyIn(i)}</div>${stepper(i.ean, i.qty)}<button class="icon-btn" data-act="del" data-ean="${esc(i.ean)}" aria-label="Quitar de la lista">${ic('trash')}</button></div>`).join('')}</div>
       <div style="margin-top:12px">${state.confirmClear ? `<span class="sm">¿Vaciar toda la lista?</span> <button class="link" data-act="clear-yes">Sí, vaciar</button> · <button class="link" data-act="clear-no">Cancelar</button>` : `<button class="link" data-act="clear">Vaciar lista</button>`}</div>`;
+  }
+
+  // ---------- promos de bancos y billeteras ----------
+  // No vienen de SEPA: están cargadas a mano en promos-bancos.json. Se muestran como estimación aparte, sin tocar el plan.
+  async function loadBank() {
+    try { const r = await fetch('promos-bancos.json', { cache: 'no-cache' }); if (r.ok) state.bank = await r.json(); } catch { /* sin promos bancarias */ }
+    if (state.view === 'plan') renderPlanView();
+  }
+  const bankDay = () => (state.settings.dia === 'hoy' ? new Date().getDay() : Number(state.settings.dia));
+  function bankModel(chosen) {
+    if (!state.bank) return null;
+    const iso = todayIso(), promos = Bank.vigentes(state.bank.promos, iso);
+    if (!promos.length) return { empty: true };
+    const by = planByStore(chosen), day = bankDay(), sel = new Set((state.settings.medios || []).filter((m) => promos.some((p) => p.medio === m)));
+    const rows = chosen.stores.map((id) => {
+      const subtotal = by[id].reduce((t, l) => t + l.price * l.qty, 0);
+      const con = (o) => Bank.mejor(promos, { store: id, subtotal, iso, ...o });
+      return {
+        id, subtotal,
+        mine: sel.size ? con({ day, medios: sel }) : null,
+        otherDay: sel.size ? con({ day: null, medios: sel }) : null,
+        potential: con({ day: null, medios: null }),
+        short: Bank.evaluar(promos, { store: id, subtotal, iso, day: sel.size ? day : null, medios: sel.size ? sel : null }).find((r) => r.motivo === 'minimo'),
+      };
+    });
+    return { promos, rows, sel, day, iso, total: rows.reduce((t, r) => t + (r.mine ? r.mine.saving : 0), 0) };
+  }
+  const bankDetail = (p) => [p.via, p.tope != null ? `tope ${fmt(p.tope)} por ${p.topePeriodo}` : 'sin tope', p.minimo ? `compra mínima ${fmt(p.minimo)}` : ''].filter(Boolean).join(' · ');
+  function bankSection(chosen) {
+    const m = bankModel(chosen);
+    if (!m) return '';
+    const head = '<div class="sect-h"><div><h2 class="h2">Promos de bancos y billeteras</h2><p>Descuentos extra según con qué pagues. Elegí tus medios de pago y te calculo el ahorro en cada tienda.</p></div></div>';
+    if (m.empty) return `<section class="sect" id="bank">${head}<div class="bank"><p class="sm mute">No hay promociones de bancos cargadas para hoy. La última carga es del ${fmtDate(new Date(state.bank.actualizado + 'T12:00:00'))} y se actualizan una vez por mes.</p></div></section>`;
+    const chips = Bank.medios(state.bank.promos, m.iso).map((x) => `<button type="button" class="chip" data-act="medio" data-medio="${esc(x)}" aria-pressed="${m.sel.has(x)}">${esc(x)}</button>`).join('');
+    const days = [1, 2, 3, 4, 5, 6, 0];
+    const daySel = `<label class="fld-inline"><span class="eyebrow">Día de compra</span><select id="bankDay" class="select sm" aria-label="Día en que vas a comprar"><option value="hoy"${state.settings.dia === 'hoy' ? ' selected' : ''}>Hoy (${Bank.DIAS[new Date().getDay()]})</option>${days.map((d) => `<option value="${d}"${String(state.settings.dia) === String(d) ? ' selected' : ''}>${Bank.DIAS[d][0].toUpperCase() + Bank.DIAS[d].slice(1)}</option>`).join('')}</select></label>`;
+    const dayName = Bank.DIAS[m.day];
+    const rows = m.rows.map((r) => {
+      let body;
+      if (r.mine) {
+        const p = r.mine.promo;
+        body = `<div class="b-main"><b class="b-save">−${fmt(r.mine.saving)}</b> con ${esc(p.medio)} · ${p.pct}% ${Bank.listaDias(p.dias)}</div><div class="xs mute">${esc(bankDetail(p))}${p.nota ? ' · ' + esc(p.nota) : ''} · <a href="${esc(p.fuentes[0])}" target="_blank" rel="noopener">fuente</a></div>`;
+      } else if (m.sel.size) {
+        const od = r.otherDay;
+        body = `<div class="b-main mute">Con tus medios no hay promo ${state.settings.dia === 'hoy' ? 'hoy' : 'el ' + dayName}.</div>${od ? `<div class="xs">Ir ${Bank.listaDias(od.promo.dias)} con ${esc(od.promo.medio)} ahorrarías <b>${fmt(od.saving)}</b>.</div>` : ''}${r.short ? `<div class="xs mute">${esc(r.short.promo.medio)} pide una compra mínima de ${fmt(r.short.promo.minimo)}.</div>` : ''}`;
+      } else if (r.potential) {
+        const p = r.potential.promo;
+        body = `<div class="b-main mute">Hasta <b>${fmt(r.potential.saving)}</b> pagando con ${esc(p.medio)} ${Bank.listaDias(p.dias)}.</div>`;
+      } else body = '<div class="b-main mute">Sin promociones de bancos cargadas para esta cadena.</div>';
+      return `<div class="b-row"><div class="who">${mk(r.id)}${esc(storeById(r.id).name)}<span class="xs mute">compra de ${fmt(r.subtotal)}</span></div><div>${body}</div></div>`;
+    }).join('');
+    const total = m.sel.size && m.total > 0 ? `<div class="b-total">Con tus promos pagarías <b>${fmt(chosen.itemsCost - m.total)}</b> en productos: ahorro estimado de <b>${fmt(m.total)}</b>. No incluye los viajes.</div>` : '';
+    return `<section class="sect" id="bank">${head}<div class="bank">
+      <div class="chips-row"><span class="eyebrow">Pago con</span>${chips}</div>${daySel}
+      <div class="b-rows">${rows}</div>${total}
+      <p class="xs mute">${esc(state.bank.aviso)} Cargadas el ${fmtDate(new Date(state.bank.actualizado + 'T12:00:00'))}. No están sumadas en el total del plan.</p></div></section>`;
+  }
+  // líneas para la lista impresa o copiada: solo si la persona eligió sus medios de pago
+  function bankLines(chosen) {
+    const m = bankModel(chosen);
+    if (!m || m.empty || !m.sel.size || !m.total) return [];
+    return [...m.rows.filter((r) => r.mine).map((r) => `${storeById(r.id).name}: pagá con ${r.mine.promo.medio} (${r.mine.promo.pct}% ${Bank.listaDias(r.mine.promo.dias)}), ahorrás ≈ ${fmt(r.mine.saving)}`),
+      `Con las promos de bancos y billeteras ahorrarías ≈ ${fmt(m.total)} (estimado: confirmá las condiciones con tu banco).`];
   }
 
   // ---------- imprimir / copiar ----------
@@ -639,9 +738,12 @@
       const save = bestSingle.total - chosen.total;
       out.push(save > 0 ? `Ahorro frente a comprar todo en ${storeById(bestSingle.store).name}: ${fmt(save)} (${pct(save / bestSingle.total)}), con los viajes incluidos.` : `Comprar todo en ${storeById(bestSingle.store).name} costaría ${fmt(bestSingle.total)}.`);
     } else if (bestSingle) out.push('Conviene comprar todo en un solo lugar: dividir no compensa el viaje.');
+    out.push(...bankLines(chosen));
     if (chosen === plan.best) plan.worth.forEach((w) => { if (!w.required) out.push(`${storeById(w.store).name}: ahorra ${fmt(w.saving)} en productos y el viaje cuesta ${fmt(w.trip)}. ${w.worth ? 'Vale la pena.' : 'No vale la pena.'}`); });
     return out;
   }
+  // marca de promo en la lista impresa o copiada
+  const promoMark = (l, text) => { const o = offerOf(l.ean, l.store); return o && o.promo && o.promo.applied ? (text ? ` (promo −${o.promo.pct}%${o.promo.hasta ? ' hasta el ' + shortDate(o.promo.hasta) : ''})` : ` <small>promo −${o.promo.pct}%</small>`) : ''; };
   function doPrint() {
     const p = planLines(); if (!p) return;
     const date = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -649,14 +751,14 @@
       <div class="p-sum">${summaryLines(p).map((l) => `<p>${esc(l)}</p>`).join('')}</div>` +
       p.stores.map(({ store, lines }) => `<div class="p-store"><h2><span>${esc(store.name)}${branchOf(store.id) ? ` <small style="font-weight:400;font-size:11px">· ${esc(branchOf(store.id).address || branchOf(store.id).name)}</small>` : ''}</span><span class="num">${fmt(lines.reduce((t, l) => t + l.price * l.qty, 0))}</span></h2>
         <table><thead><tr><th style="width:24px"></th><th>Producto</th><th class="num">Cant.</th><th class="num">Precio</th><th class="num">Subtotal</th></tr></thead><tbody>
-        ${lines.map((l) => `<tr><td><span class="p-box"></span></td><td>${esc(itemByEan(l.ean).name)}</td><td class="num">${l.qty}</td><td class="num">${fmt(l.price)}</td><td class="num">${fmt(l.price * l.qty)}</td></tr>`).join('')}
+        ${lines.map((l) => `<tr><td><span class="p-box"></span></td><td>${esc(itemByEan(l.ean).name)}</td><td class="num">${l.qty}</td><td class="num">${fmt(l.price)}${promoMark(l)}</td><td class="num">${fmt(l.price * l.qty)}</td></tr>`).join('')}
         </tbody></table></div>`).join('') + `<p style="font-size:10.5px">${sepaNote().replace(/<[^>]+>/g, '')}</p>`;
     window.print();
   }
   async function doCopy(btn) {
     const p = planLines(); if (!p) return;
     const text = ['LISTA DE COMPRAS', ...summaryLines(p), ''].concat(p.stores.flatMap(({ store, lines }) =>
-      [`== ${store.name} (${fmt(lines.reduce((t, l) => t + l.price * l.qty, 0))}) ==`, ...lines.map((l) => `[ ] ${l.qty}x ${itemByEan(l.ean).name} - ${fmt(l.price)}`), ''])).join('\n');
+      [`== ${store.name} (${fmt(lines.reduce((t, l) => t + l.price * l.qty, 0))}) ==`, ...lines.map((l) => `[ ] ${l.qty}x ${itemByEan(l.ean).name} - ${fmt(l.price)}${promoMark(l, true)}`), ''])).join('\n');
     const orig = btn.innerHTML;
     try { await navigator.clipboard.writeText(text); btn.innerHTML = `${ic('check')}Copiado`; } catch { btn.textContent = 'No se pudo copiar'; }
     setTimeout(() => { btn.innerHTML = orig; }, 1800);
@@ -795,6 +897,11 @@
       case 'home-cancel': state.editHome = false; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
       case 'branches-refresh': state.stores.forEach((s) => { cfg(s.id).manual = false; }); state.branches = { key: homeKey(), byStore: {} }; fetchBranches(true); return;
       case 'auto': { const c = cfg(el.dataset.store); c.manual = false; applyBranch(el.dataset.store); afterTripChange(); return; }
+      case 'medio': {
+        const med = new Set(state.settings.medios || []);
+        if (!med.delete(el.dataset.medio)) med.add(el.dataset.medio);
+        state.settings.medios = [...med]; persist(); renderPlanView(); return;
+      }
       case 'pick-store': {
         const sid = el.dataset.store, it = itemByEan(ean);
         if (!it) { addToCart(ean, sid); return; }
@@ -830,6 +937,8 @@
       if (it) { if (e.target.value) it.store = e.target.value; else delete it.store; cartChanged(); }
       return;
     }
+    if (e.target.id === 'bankDay') { state.settings.dia = e.target.value; persist(); renderPlanView(); return; }
+    if (e.target.id === 'promoChk') { state.settings.promos = e.target.checked; persist(); deriveAll(); state.selectedK = null; refreshMoney(); return; }
     if (e.target.id === 'rateSel') { setCurrency('USD', e.target.value); return; }
     if (e.target.id === 'provSel') { setProvince(e.target.value).then(renderProvRow); return; }
     if (e.target.id === 'fSort') { state.filters.sort = e.target.value; renderFilters(); renderResults(); return; }
@@ -862,6 +971,7 @@
     state.cart.forEach((i) => { state.meta[i.ean] = { brand: i.brand, name: i.name }; });
     buildSearch(); updateCount(); updateBarNote(); renderCur();
     if (state.currency.cur === 'USD') loadRates();
+    loadBank();
     await loadTable();
     Data.names().catch(() => {}); // se va preparando la búsqueda mientras la persona mira la pantalla
     go(state.cart.length ? 'plan' : 'search');

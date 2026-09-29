@@ -1,5 +1,5 @@
 // Datos abiertos de SEPA (Precios Claros, Secretaría de Comercio de la Nación), ya procesados por scripts/build_sepa.py.
-// Son archivos estáticos: meta.json, names.json (búsqueda), branches.json y prices/AR-X.json (uno por provincia).
+// Son archivos estáticos: meta.json, names.json (búsqueda), branches.json, prices/AR-X.json y promos/AR-X.json (uno por provincia).
 // La búsqueda se hace acá, en el navegador: no se consulta a ningún supermercado.
 window.Data = (() => {
   'use strict';
@@ -34,6 +34,9 @@ window.Data = (() => {
 
   // precios de una provincia: { ean: [precio por cadena, en el orden de meta.cadenas] }
   const prices = (prov) => once('p:' + prov, async () => { await meta(); return getJson(`prices/${prov}.json`, version); });
+  // promociones vigentes de una provincia: { t: [textos], p: { ean: [[cadena, precio, %, hasta, tipo, texto, sucursales%], ...] } }
+  // tipo: 0 = precio promocional para cualquiera, 1 = pide un medio de pago, 2 = pide comprar varias unidades
+  const promos = (prov) => once('promo:' + prov, async () => { await meta(); try { return await getJson(`promos/${prov}.json`, version); } catch { return { t: [], p: {} }; } });
   const branches = () => once('branches', async () => { await meta(); return getJson('branches.json', version); });
 
   // Nombre para mostrar: agrega la cantidad ("500 gr") solo si el nombre no trae ningún número.
@@ -83,5 +86,5 @@ window.Data = (() => {
     return out;
   }
 
-  return { meta, names, prices, branches, search, nearestBranches, haversineKm, display };
+  return { meta, names, prices, promos, branches, search, nearestBranches, haversineKm, display };
 })();

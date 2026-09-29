@@ -10,15 +10,15 @@ SUC_H = ('id_comercio|id_bandera|id_sucursal|sucursales_nombre|sucursales_tipo|s
          'sucursales_longitud|sucursales_observaciones|sucursales_barrio|sucursales_codigo_postal|sucursales_localidad|sucursales_provincia')
 PROD_H = ('id_comercio|id_bandera|id_sucursal|id_producto|productos_ean|productos_descripcion|productos_cantidad_presentacion|'
           'productos_unidad_medida_presentacion|productos_marca|productos_precio_lista|productos_precio_referencia|'
-          'productos_cantidad_referencia|productos_unidad_medida_referencia')
+          'productos_cantidad_referencia|productos_unidad_medida_referencia|productos_precio_unitario_promo1|productos_leyenda_promo1')
 
 
 def suc(cid, band, sid, nombre, tipo, calle, num, lat, lon, loc, prov):
     return f'{cid}|{band}|{sid}|{nombre}|{tipo}|{calle}|{num}|{lat}|{lon}||||{loc}|{prov}'
 
 
-def prod(cid, band, sid, ean, desc, price, marca='MARCA'):
-    return f'{cid}|{band}|{sid}|{ean}|1|{desc}|500|grm|{marca}|{price}|0|1|kgm'
+def prod(cid, band, sid, ean, desc, price, marca='MARCA', promo=('', '')):
+    return f'{cid}|{band}|{sid}|{ean}|1|{desc}|500|grm|{marca}|{price}|0|1|kgm|{promo[0]}|{promo[1]}'
 
 
 def inner_zip(comercio, sucursales, productos, cp1252=False, bom=False):
@@ -41,7 +41,9 @@ def make_fixture(path):
          suc(10, 1, 2, 'WEB', 'Web', 'Deposito', 1, '-34.7000', '-58.5000', 'Ituzaingo', 'AR-B'),
          suc(10, 3, 1, 'EXPRESS', 'Autoservicio', 'Corrientes', 100, '-34.6040', '-58.3800', 'Centro', 'AR-C')],
         [prod(10, 1, 1, '0007790895000997', 'GASEOSA COLA COCA COLA 2250 CM3', 5900, 'COCA COLA'),
-         prod(10, 1, 1, '0007793704000911', 'YERBA MATE C/PALO PLAYADITO', 2790, 'PLAYADITO'),
+         prod(10, 1, 1, '0007793704000911', 'YERBA MATE C/PALO PLAYADITO', 2790, 'PLAYADITO',
+              ('2232', '20% de descuento con Banco Nación - Vigencia: Desde el 01/09/2026 Hasta el 30/09/2026')),
+         prod(10, 1, 1, '0007790040143517', 'GALLETITAS', 1000, 'X', ('700', 'Promo A valida desde el 01/08/2026 hasta 15/09/2026')),   # vencida
          prod(10, 3, 1, '0007790895000997', 'GASEOSA COLA COCA COLA 2250 CM3', 9999, 'COCA COLA'),   # Express: se ignora
          prod(10, 1, 1, '12345', 'CODIGO INVALIDO', 100)],
         bom=True)
@@ -52,7 +54,9 @@ def make_fixture(path):
          'Última actualización: 2026-09-29'],   # línea suelta al final (pasa en SEPA de verdad)
         [prod(15, 1, 1, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 5800, 'COCA-COLA'),
          prod(15, 1, 2, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 6000, 'COCA-COLA'),
-         prod(15, 1, 1, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 5900, 'COCA-COLA')],
+         prod(15, 1, 1, '7790895000997', 'COCA COLA GASEOSA 2.25 LT SABOR ORIGINAL', 5900, 'COCA-COLA',
+              ('4425', '25% de descuento con cualquier medio de pago - Vigencia: Desde el 25/09/2026 Hasta el 05/10/2026 - Stock: Hasta agotar stock.')),
+         prod(15, 1, 1, '7793704000911', 'YERBA', 3000, 'PLAYADITO', ('2000', '3X2 YERBA PLAYADITO'))],
         cp1252=True)
     with zipfile.ZipFile(path, 'w') as outer:
         outer.writestr('2026-09-29/', '')
@@ -122,11 +126,71 @@ class BuildSepa(unittest.TestCase):
         b = self.load('branches.json')
         self.assertIn('DIA Nuñez', [x[2] for x in b])   # cp1252 -> ñ correcta (nombre mixto: se respeta)
 
+    def test_promociones(self):
+        order = [c['id'] for c in self.load('meta.json')['cadenas']]
+        d = self.load('promos', 'AR-C.json')
+        dia = order.index('dia')
+        coca = d['p']['7790895000997']
+        self.assertEqual(len(coca), 1)
+        ci, precio, pct, hasta, kind, ti, frac = coca[0]
+        self.assertEqual((ci, precio, pct, hasta, kind, frac), (dia, 4425, 25, '2026-10-05', 0, 50))   # directa, en 1 de 2 filas
+        self.assertIn('cualquier medio de pago', d['t'][ti])
+        self.assertNotIn(' - Vigencia', d['t'][ti])
+        yerba = {e[0]: e for e in d['p']['7793704000911']}
+        self.assertEqual(yerba[dia][4], 2)                                    # 3X2: promoción por cantidad, no se aplica sola
+        self.assertEqual(yerba[order.index('carrefour')][4], 1)               # Banco Nación: pide un medio de pago
+        self.assertNotIn('7790040143517', d['p'])                             # vencida: no se guarda
+        self.assertEqual(self.load('meta.json')['promos'], 3)
+
     def test_falla_si_los_datos_no_pasan_las_validaciones(self):
         r = subprocess.run([sys.executable, SCRIPT, '--zip', self.zip, '--out', os.path.join(self.tmp.name, 'otro')],
                            capture_output=True, text=True, env={k: v for k, v in os.environ.items() if k != 'SEPA_RELAX'})
         self.assertNotEqual(r.returncode, 0)
         self.assertIn('validaciones', r.stderr + r.stdout)
+
+
+class ParsePromo(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import datetime, importlib.util
+        spec = importlib.util.spec_from_file_location('build_sepa', SCRIPT)
+        cls.b = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.b)
+        cls.hoy = datetime.date(2026, 9, 29)
+
+    def p(self, lista, promo, texto):
+        return self.b.parse_promo(str(lista), str(promo), texto, self.hoy)
+
+    def test_directa_con_vigencia(self):
+        r = self.p(1000, 750, '25% de descuento con cualquier medio de pago - Vigencia: Desde el 16/09/2026 Hasta el 05/10/2026 - Stock: Hasta agotar stock.')
+        self.assertEqual((r['price'], r['pct'], r['hasta'], r['kind']), (750, 25, '2026-10-05', 0))
+
+    def test_sin_fechas_es_directa(self):
+        r = self.p(1000, 800, '20% de descuento. Precio Promocional Exclusivo DIA en Sucursales Indicadas Hasta Agotar Stock o Finalice Vigencia')
+        self.assertEqual((r['kind'], r['hasta']), (0, ''))
+
+    def test_formato_del_a_al(self):
+        self.assertEqual(self.p(1000, 800, 'DEL 20/09/2026 AL 30/09/2026')['hasta'], '2026-09-30')
+
+    def test_vencida_o_futura(self):
+        self.assertIsNone(self.p(1000, 800, 'Promo A valida desde el 01/08/2026 hasta 28/09/2026'))
+        self.assertIsNone(self.p(1000, 800, 'Promo A valida desde el 01/10/2026 hasta 15/10/2026'))
+        self.assertIsNotNone(self.p(1000, 800, 'Promo A valida desde el 01/09/2026 hasta 29/09/2026'))   # vence hoy: vale
+
+    def test_por_cantidad(self):
+        for t in ('Llevando 3 unidades - Vigencia: Desde el 01/09/2026 Hasta el 30/09/2026', '28% de descuento. 2X$2550 ALFJ FANTOCH',
+                  '33% de descuento. 3X2 CARAMELO', '30% de descuento. 2DO AL 70% JUGO'):
+            self.assertEqual(self.p(1000, 700, t)['kind'], 2, t)
+
+    def test_por_medio_de_pago(self):
+        self.assertEqual(self.p(1000, 800, '20% con Banco Nación')['kind'], 1)
+        self.assertEqual(self.p(1000, 800, '20% pagando con Mercado Pago')['kind'], 1)
+
+    def test_sin_promocion_o_que_no_baja_el_precio(self):
+        self.assertIsNone(self.p(1000, '', 'algo'))
+        self.assertIsNone(self.p(1000, 1000, 'sin descuento real'))
+        self.assertIsNone(self.p(1000, 1200, 'mas caro'))
+        self.assertIsNone(self.b.parse_promo('1000', 'abc', 'x', self.hoy))
 
 
 class CheckChains(unittest.TestCase):

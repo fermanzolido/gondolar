@@ -25,6 +25,10 @@ imprimís la lista dividida por tienda.
   elección, suma esa tienda al recorrido y te muestra cuánto más barato estaría en otro lado.
 - **Filtros** por marca y precio, más orden por precio o por mayor diferencia entre tiendas. "Solo comparables" oculta las
   marcas propias, que solo se venden en su cadena (Carrefour Classic, Día, Coto…).
+- **Promociones:** los precios incluyen las promociones vigentes que los comercios informan a SEPA (con una etiqueta de
+  descuento; hay un interruptor para apagarlas). Las que piden un medio de pago o comprar varias unidades se marcan pero no
+  se restan. Aparte, la sección *Promos de bancos y billeteras* del plan estima cuánto ahorrás en cada tienda según con qué
+  pagues y qué día vayas (tope y compra mínima incluidos).
 - **Plan de compra:** prueba todas las combinaciones de tiendas y elige la de menor costo total (productos + viajes).
   Muestra la mejor opción para ir a 1, 2 o 3 tiendas y si **vale la pena** cada parada extra.
 - **Tu ubicación:** con tu dirección o el GPS elige la sucursal **oficial** más cercana de cada cadena (con su dirección),
@@ -70,6 +74,9 @@ SEPA (datos.produccion.gob.ar) ──► tu compu con IP argentina, 1 vez por d�
 - `public/data.js` — carga esos archivos y hace la búsqueda en el navegador.
 - `public/app.js` — la interfaz (HTML, CSS y JavaScript sin frameworks). Guarda todo en `localStorage`.
 - `public/optimizer.js` — el optimizador del plan: función pura, con tests en `test/`.
+- `public/bank.js` y `public/promos-bancos.json` — cálculo de las promos de bancos y billeteras y su archivo de datos. Para
+  renovarlo cada mes: editá el JSON (`desde`, `hasta`, porcentaje, tope, días y fuentes de cada promo) y corré `npm test`, que
+  valida el formato.
 - `lib/api.js`, `lib/geo.js` — la API mínima (direcciones, rutas y dólar), compartida entre el servidor local (`server.js`) y
   el Worker (`worker/index.mjs`). Los precios y las sucursales **no** pasan por ella.
 - `public/consent.js` — consentimiento de privacidad: nada de terceros se carga sin permiso.
@@ -121,7 +128,10 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
 
 - Son precios de góndola informados por los comercios, agrupados por provincia: pueden diferir en tu sucursal, tu zona o
   tu medio de pago. La app muestra de qué día son.
-- No incluyen promociones ni descuentos con tarjeta.
+- Solo cuatro cadenas informan promociones a SEPA (Carrefour, Día, La Anónima y, muy pocas, Coto); las de Jumbo, Disco, Vea y
+  Changomás no vienen en los datos oficiales, así que sus precios son de lista.
+- Las promociones de bancos y billeteras **no son datos oficiales**: se cargan a mano una vez por mes en
+  `public/promos-bancos.json` a partir de notas de prensa y hay que revisarlas y renovarlas. Cuando vencen dejan de mostrarse.
 - SEPA publica un día por vez y no todos los productos de cada cadena figuran: el catálogo es más chico que el de sus webs
   (por ejemplo, Jumbo informa unos 10.700 productos).
 - Cada cadena informa a su modo: algunos nombres vienen abreviados. La app elige el más completo.

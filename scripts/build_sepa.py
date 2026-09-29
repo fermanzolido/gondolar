@@ -4,12 +4,13 @@ Convierte la base SEPA (Precios Claros, Secretaría de Comercio de la Nación) e
 
 Fuente:   https://datos.produccion.gob.ar/dataset/sepa-precios   (licencia Creative Commons Atribución 4.0)
 Entrada:  el ZIP diario (un ZIP por comercio adentro, con comercio.csv, sucursales.csv y productos.csv)
-Salida:   <out>/meta.json, names.json, branches.json y prices/AR-X.json (uno por provincia)
+Salida:   <out>/meta.json, names.json, branches.json, prices/AR-X.json y promos/AR-X.json (uno por provincia)
 
 Qué hace con los datos:
   * se queda con las cadenas que usa la app (ver CHAINS);
   * unifica los códigos de barras (quita ceros de relleno) para poder comparar el mismo producto entre cadenas;
-  * agrupa los precios por provincia y cadena usando la mediana de sus sucursales (los precios cambian según la zona).
+  * agrupa los precios por provincia y cadena usando la mediana de sus sucursales (los precios cambian según la zona);
+  * conserva las promociones vigentes que los comercios informan (precio promocional y leyenda), sin las vencidas.
 
 Uso:
   python scripts/build_sepa.py --download --out public/data
@@ -170,6 +171,59 @@ def pretty(s):
     return re.sub(r"[A-Za-zÁÉÍÓÚÜÑáéíóúüñ0-9]+", fix, s)
 
 
+# ---- promociones ----
+# SEPA informa hasta dos promociones por producto (precio + leyenda). Solo se aplican solas las que valen para cualquiera que
+# compre una unidad; las que piden un medio de pago o comprar varias unidades se muestran como aviso.
+PROMO_DIRECTA, PROMO_MEDIO, PROMO_CANTIDAD = 0, 1, 2
+RE_FECHA = re.compile(r'(\d{1,2})/(\d{1,2})/(\d{4}|\d{2})')
+RE_CANTIDAD = re.compile(r'llevando|\d\s*x\s*[$\d]|\d\s*(?:do|da|ra|er|ta|to)\s*al\s*\d|unidades|segunda unidad|2da|2do|combo|pack')
+RE_MEDIO = re.compile(r'banco|tarjeta|visa|master|amex|cabal|naranja|\bmodo\b|mercado ?pago|cuenta dni|debito|credito|jubilad|billetera|cuotas|\bclub\b|\bapp\b|socios?')
+
+
+def _sin_acentos(s):
+    import unicodedata
+    return ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn').lower()
+
+
+def parse_promo(lista, precio, leyenda, hoy):
+    """Interpreta una promoción de SEPA. Devuelve None (sin promoción, vencida o que no baja el precio) o
+    dict(price, pct, hasta 'AAAA-MM-DD' o '', kind, texto). `hoy` es la fecha de los datos (datetime.date)."""
+    try:
+        promo, base = float(precio), float(lista)
+    except (TypeError, ValueError):
+        return None
+    if not (0 < promo < base * 0.98):   # descuentos de menos de 2% no se muestran (suelen ser redondeos)
+        return None
+    texto = re.sub(r'\s+', ' ', leyenda or '').strip()
+    fechas = []
+    for d, m, y in RE_FECHA.findall(texto):
+        try:
+            fechas.append(datetime.date(int(y) + (2000 if int(y) < 100 else 0), int(m), int(d)))
+        except ValueError:
+            pass
+    desde = hasta = None
+    if len(fechas) >= 2:
+        desde, hasta = min(fechas), max(fechas)
+    elif len(fechas) == 1:
+        if re.search(r'hasta[^\d]{0,15}\d', _sin_acentos(texto)):
+            hasta = fechas[0]
+        else:
+            desde = fechas[0]
+    if hasta and hoy > hasta:
+        return None   # vencida
+    if desde and desde > hoy:
+        return None   # todavía no empezó
+    t = _sin_acentos(texto)
+    if RE_CANTIDAD.search(t):
+        kind = PROMO_CANTIDAD
+    elif RE_MEDIO.search(t.replace('cualquier medio de pago', '')):
+        kind = PROMO_MEDIO
+    else:
+        kind = PROMO_DIRECTA
+    return dict(price=round(promo), pct=round((1 - promo / base) * 100), hasta=hasta.isoformat() if hasta else '', kind=kind,
+                texto=texto.split(' - Vigencia')[0].split(' - Stock')[0][:120])
+
+
 def quantity(cant, unidad):
     try:
         n = float(cant.replace(',', '.'))
@@ -203,6 +257,7 @@ def main():
     fecha_m = re.search(r'(\d{4}-\d{2}-\d{2})/', ' '.join(outer.namelist()))
     fecha = fecha_m.group(1) if fecha_m else time.strftime('%Y-%m-%d')
     log('Datos de SEPA del', fecha)
+    hoy = datetime.date.fromisoformat(fecha)
 
     order = [c['id'] for c in CHAINS]
     by_cuit = collections.defaultdict(list)
@@ -210,6 +265,7 @@ def main():
         by_cuit[c['cuit']].append(c)
 
     prices = collections.defaultdict(list)                      # (prov, cadena, ean) -> precios
+    promos = collections.defaultdict(list)                      # (prov, cadena, ean) -> promociones vigentes (una por sucursal y promo)
     names = collections.defaultdict(lambda: collections.defaultdict(collections.Counter))  # ean -> cadena -> Counter((desc, marca, cantidad))
     branches = []
     n_suc = collections.Counter(); n_suc_prov = collections.defaultdict(collections.Counter)
@@ -289,6 +345,10 @@ def main():
                 continue
             filas[ch] += 1
             prices[(prov, ch, ean)].append(p)
+            for k in ('1', '2'):
+                pr = parse_promo(d['productos_precio_lista'], d.get('productos_precio_unitario_promo' + k), d.get('productos_leyenda_promo' + k), hoy)
+                if pr:
+                    promos[(prov, ch, ean)].append(pr)
             names[ean][ch][(d['productos_descripcion'].strip(), d['productos_marca'].strip(),
                             quantity(d['productos_cantidad_presentacion'], d['productos_unidad_medida_presentacion']))] += 1
         log(f'  {cuit} listo ({time.time() - t0:.0f}s)')
@@ -327,6 +387,38 @@ def main():
     for prov, t in tables.items():
         dump(f'prices/{prov}.json', t)
 
+    # Promociones: por provincia, cadena y producto se guardan hasta dos (la directa más barata y otra que pide algo: medio de pago
+    # o cantidad). frac = en qué porcentaje de las sucursales de la cadena en esa provincia figura. Los textos se guardan una sola vez.
+    os.makedirs(os.path.join(out, 'promos'), exist_ok=True)
+    for f in os.listdir(os.path.join(out, 'promos')):
+        os.remove(os.path.join(out, 'promos', f))
+    por_prov = collections.defaultdict(dict)
+    textos = {}
+    n_promos = 0
+    for (prov, ch, ean), lst in promos.items():
+        if ch not in idx or prov not in tables:
+            continue
+        total = len(prices[(prov, ch, ean)])
+        grupos = collections.defaultdict(list)
+        for pr in lst:
+            grupos[(pr['kind'], pr['texto'], pr['hasta'])].append(pr)
+        elegidos = []
+        directas = [g for g in grupos.items() if g[0][0] == PROMO_DIRECTA]
+        otras = [g for g in grupos.items() if g[0][0] != PROMO_DIRECTA]
+        if directas:
+            elegidos.append(min(directas, key=lambda g: (statistics.median(x['price'] for x in g[1]), -len(g[1]))))
+        if otras:
+            elegidos.append(max(otras, key=lambda g: len(g[1])))
+        for (kind, texto, hasta), g in elegidos:
+            ti = textos.setdefault(texto, len(textos))
+            frac = min(100, max(1, round(100 * len(g) / max(total, 1))))
+            por_prov[prov].setdefault(ean, []).append([idx[ch], round(statistics.median(x['price'] for x in g)),
+                                                       round(statistics.median(x['pct'] for x in g)), hasta, kind, ti, frac])
+            n_promos += 1
+    lista_textos = [t for t, _ in sorted(textos.items(), key=lambda kv: kv[1])]
+    for prov in tables:
+        dump(f'promos/{prov}.json', {'t': lista_textos, 'p': por_prov.get(prov, {})})
+
     # Cada cadena vota una vez con su variante más usada (así una cadena con muchas sucursales no impone sus nombres
     # abreviados). Entre las cadenas se prefiere el nombre más completo y la marca más repetida.
     nombres = {}
@@ -345,7 +437,7 @@ def main():
     dump('meta.json', {
         'v': 1, 'fecha': fecha, 'generado': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'fuente': 'Precios Claros – Base SEPA. Secretaría de Comercio de la Nación (datos.produccion.gob.ar)',
-        'licencia': 'Creative Commons Atribución 4.0', 'productos': len(eans),
+        'licencia': 'Creative Commons Atribución 4.0', 'productos': len(eans), 'promos': n_promos,
         'cadenas': [dict({k: c[k] for k in ('id', 'sigla', 'name', 'color', 'web')}, **{k: True for k in ('optativa', 'regional') if c.get(k)})
                     for c in CHAINS if c['id'] in idx],
         'provincias': {p: {'nombre': PROVINCIAS[p], 'productos': len(tables[p]),
