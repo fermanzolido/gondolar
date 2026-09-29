@@ -16,7 +16,8 @@ jobs:
     steps:
       - name: Aviso si faltan los secrets
         if: env.HAS_TOKEN != 'true'
-        run: echo "Sin CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID: no se publica la API desde acá."
+        run: |
+          echo "Faltan los secrets CLOUDFLARE_API_TOKEN y CLOUDFLARE_ACCOUNT_ID, así que no se publica la API desde acá."
       - uses: actions/checkout@v4
         if: env.HAS_TOKEN == 'true'
       - uses: cloudflare/wrangler-action@v3
