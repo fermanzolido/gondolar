@@ -166,6 +166,29 @@ class CheckChains(unittest.TestCase):
         self.assertEqual(len(problemas), 1)
         self.assertIn('a:', problemas[0])
 
+    def test_regional_con_datos_viejos_se_omite(self):
+        chains = [dict(id='a'), dict(id='r', requerida=False, min_suc=1, min_eans=1)]
+        n_suc, seen = self.counters({'a': 50, 'r': 3}, {'a': 5000, 'r': 10})
+        ok, problemas, avisos = self.b.check_chains(chains, n_suc, seen, {'a': '2026-09-29', 'r': '2025-06-11'}, '2026-09-29')
+        self.assertEqual(ok, ['a'])
+        self.assertEqual(problemas, [])
+        self.assertIn('desactualizados', avisos[0])
+
+    def test_regional_con_datos_al_dia_se_mantiene(self):
+        chains = [dict(id='a'), dict(id='r', requerida=False, min_suc=1, min_eans=1)]
+        n_suc, seen = self.counters({'a': 50, 'r': 3}, {'a': 5000, 'r': 10})
+        ok, _, avisos = self.b.check_chains(chains, n_suc, seen, {'a': '2026-09-29', 'r': '2026-09-28'}, '2026-09-29')
+        self.assertEqual(ok, ['a', 'r'])
+        self.assertEqual(avisos, [])
+
+    def test_cadena_principal_con_fecha_vieja_no_se_descarta(self):
+        # Changomas informa fechas de 2017 pero sus precios son actuales: solo se avisa
+        chains = [dict(id='a')]
+        n_suc, seen = self.counters({'a': 50}, {'a': 5000})
+        ok, problemas, avisos = self.b.check_chains(chains, n_suc, seen, {'a': '2017-10-19'}, '2026-09-29')
+        self.assertEqual((ok, problemas), (['a'], []))
+        self.assertIn('se mantiene', avisos[0])
+
     def test_las_cadenas_definidas_tienen_lo_necesario_para_la_app(self):
         ids = [c['id'] for c in self.b.CHAINS]
         self.assertEqual(len(ids), len(set(ids)))

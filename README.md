@@ -11,10 +11,9 @@ imprimís la lista dividida por tienda.
 
 ## Qué hace
 
-- **Compara 14 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima (todo el país), más las regionales
-  Toledo (Mar del Plata), Mariano Max (Córdoba), Unicoop (Patagones y Viedma), California (Misiones) y Comodín (Jujuy), y
-  Farmacity como cadena opcional (es una farmacia, viene apagada). Las regionales se prenden solas si tienen sucursales en tu
-  provincia.
+- **Compara hasta 13 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima (todo el país), más las regionales
+  Toledo (Mar del Plata), Mariano Max (Córdoba), California (Misiones) y Comodín (Jujuy), y Farmacity como cadena opcional
+  (es una farmacia, viene apagada). Las regionales se prenden solas si tienen una sucursal cerca de tu ubicación.
 - **Usa la base oficial SEPA** ([Precios Claros](https://datos.produccion.gob.ar/dataset/sepa-precios), Secretaría de Comercio
   de la Nación): precios que los comercios informan al Estado, actualizados todos los días. **No consulta los sitios de los
   supermercados.**
@@ -72,7 +71,9 @@ SEPA (datos.produccion.gob.ar) ──► tu compu con IP argentina, 1 vez por d�
   el Worker (`worker/index.mjs`). Los precios y las sucursales **no** pasan por ella.
 - `public/consent.js` — consentimiento de privacidad: nada de terceros se carga sin permiso.
 
-Decisiones sobre los datos: Carrefour Express queda afuera (sus precios y su ubicación no representan al resto de la
+Decisiones sobre los datos: una cadena regional se omite sola si su comercio informa una última actualización de hace más de
+45 días (hoy le pasa a **Unicoop**, que informa junio de 2025: sus precios salen 20-30% más bajos que los de todas las demás en
+cada categoría, y volvería sola cuando actualice); Carrefour Express queda afuera (sus precios y su ubicación no representan al resto de la
 cadena), y de La Anónima solo entran los supermercados (no Topsy ni Bomba). Para sumar otra cadena de SEPA alcanza con
 agregarla a `CHAINS` en `scripts/build_sepa.py`.
 

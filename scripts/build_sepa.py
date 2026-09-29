@@ -18,7 +18,7 @@ Uso:
 Solo usa la librería estándar. Si el formato oficial cambia y los resultados no pasan las validaciones, termina con
 error para que no se publiquen datos rotos.
 """
-import argparse, collections, csv, io, json, os, re, shutil, statistics, sys, tempfile, time, urllib.request, zipfile
+import argparse, collections, csv, datetime, io, json, os, re, shutil, statistics, sys, tempfile, time, urllib.request, zipfile
 
 API = 'https://datos.produccion.gob.ar/api/3/action/package_show?id=sepa-precios'
 UA = 'Gondolar/1.0 (+https://github.com/fermanzolido/gondolar; datos abiertos SEPA, uso sin fines de lucro)'
@@ -60,17 +60,33 @@ PROVINCIAS = {
 MIN_SUCURSALES_POR_CADENA = 10
 MIN_EANS_POR_CADENA = 3000
 MIN_EANS_TOTAL = 40000
+# Una cadena regional cuyo comercio informa una última actualización de hace más de esto se omite: sus precios están viejos
+# (Unicoop informaba junio de 2025 y sus precios eran 20-30% más bajos que los de todas las demás). Solo se aplica a las
+# regionales: Changomás informa fechas de 2017, pero sus precios son actuales.
+MAX_DIAS_SIN_ACTUALIZAR = 45
 if os.environ.get("SEPA_RELAX"):  # solo para las pruebas con datos de juguete
     MIN_SUCURSALES_POR_CADENA = MIN_EANS_POR_CADENA = MIN_EANS_TOTAL = 0
 
 
 
-def check_chains(chains, n_suc, seen):
-    """Devuelve (ids que pasan, problemas de cadenas requeridas, avisos de cadenas opcionales que se omiten)."""
+def check_chains(chains, n_suc, seen, ultima=None, fecha=None):
+    """Devuelve (ids que pasan, problemas de cadenas requeridas, avisos de cadenas opcionales que se omiten).
+
+    `ultima` (id de cadena -> 'AAAA-MM-DD') y `fecha` (día de los datos) permiten descartar regionales con datos viejos."""
     ok, problemas, avisos = [], [], []
     for c in chains:
         cid = c['id']
         fallas = []
+        if ultima and fecha and ultima.get(cid):
+            try:
+                dias = (datetime.date.fromisoformat(fecha) - datetime.date.fromisoformat(ultima[cid])).days
+            except ValueError:
+                dias = 0
+            if dias > MAX_DIAS_SIN_ACTUALIZAR:
+                if c.get('requerida', True):
+                    avisos.append(f"{cid}: informa una última actualización de hace {dias} días ({ultima[cid]}), pero se mantiene por ser una cadena principal")
+                else:
+                    fallas.append(f'datos desactualizados (última actualización informada: {ultima[cid]})')
         if n_suc[cid] < c.get('min_suc', MIN_SUCURSALES_POR_CADENA):
             fallas.append(f'solo {n_suc[cid]} sucursales')
         if len(seen[cid]) < c.get('min_eans', MIN_EANS_POR_CADENA):
@@ -198,6 +214,7 @@ def main():
     branches = []
     n_suc = collections.Counter(); n_suc_prov = collections.defaultdict(collections.Counter)
     filas = collections.Counter()
+    ultima = {}   # cadena -> última actualización que informa su comercio (AAAA-MM-DD)
 
     for info in outer.infolist():
         if not info.filename.endswith('.zip') or info.file_size == 0:
@@ -225,6 +242,12 @@ def main():
                     continue
                 return c['id']
             return None
+
+        for r in comercio:
+            ch_r = chain_for(r['id_bandera'])
+            dia = r.get('comercio_ultima_actualizacion', '')[:10]
+            if ch_r and dia and dia > ultima.get(ch_r, ''):
+                ultima[ch_r] = dia
 
         branch_prov = {}
         for d in rows(z, 'sucursales.csv'):
@@ -274,7 +297,7 @@ def main():
     seen = {ch: set() for ch in order}
     for (prov, ch, ean) in prices:
         seen[ch].add(ean)
-    keep, problemas, avisos = check_chains(CHAINS, n_suc, seen)
+    keep, problemas, avisos = check_chains(CHAINS, n_suc, seen, ultima, fecha)
     for a in avisos:
         log('AVISO:', a)
     total_eans = len({e for ch in keep for e in seen[ch]})
