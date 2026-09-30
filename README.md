@@ -4,7 +4,7 @@ Comparador de precios de supermercados argentinos con **datos abiertos oficiales
 **en qué súper conviene comprar cada cosa**, teniendo en cuenta lo que cuesta ir hasta cada uno (nafta y tiempo). Al final
 imprimís la lista dividida por tienda.
 
-**[Probarlo online →](https://fermanzolido.github.io/gondolar/)** · Gratis, sin cuentas, sin publicidad.
+**[Probarlo online →](https://gondolar.com.ar/)** · Gratis, sin cuentas, sin publicidad.
 
 > Proyecto personal e independiente. No tiene relación con ninguna cadena de supermercados.
 > Los precios son orientativos. Ver el [aviso legal y de privacidad](public/legal.html).
@@ -41,7 +41,7 @@ imprimís la lista dividida por tienda.
 
 ## Cómo usarlo
 
-**Online:** entrá a https://fermanzolido.github.io/gondolar/. La primera vez, cargá tu dirección en *Viaje y tiendas*.
+**Online:** entrá a https://gondolar.com.ar/. La primera vez, cargá tu dirección en *Viaje y tiendas*.
 
 **En tu computadora** (necesita [Node.js](https://nodejs.org) 18+ y [Python](https://www.python.org) 3.9+, sin dependencias que instalar):
 
@@ -102,7 +102,10 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
    El flujo `.github/workflows/pages.yml` publica la web con cada `git push` a `main` y cada vez que se actualizan los datos:
    trae el paquete de precios del release `datos`, corre las pruebas y despliega.
 3. **Cerrar la API a tu web.** En `wrangler.toml` poné `ALLOWED_ORIGIN = "https://TU-USUARIO.github.io"` y volvé a
-   ejecutar `npx wrangler deploy`.
+   ejecutar `npx wrangler deploy`. Acepta varias webs separadas por coma (por ejemplo tu dominio propio y el de GitHub Pages).
+   *Dominio propio (opcional):* si tenés uno (acá, `gondolar.com.ar`), delegalo a Cloudflare (plan gratis), creá en su DNS
+   cuatro registros A a `185.199.108.153`, `.109.153`, `.110.153` y `.111.153` y un CNAME `www` a `TU-USUARIO.github.io`
+   (todos en "Solo DNS"), y en *Settings → Pages → Custom domain* poné el dominio y activá *Enforce HTTPS*.
 4. *Opcional:* cargá los secrets `CLOUDFLARE_API_TOKEN` y `CLOUDFLARE_ACCOUNT_ID` para que la API se publique sola con
    cada push (`.github/workflows/worker.yml`).
 
