@@ -152,8 +152,9 @@ def main():
     args = ap.parse_args()
 
     base = leer_baseline(args.baseline)
-    if base and base.get('i') and args.max_age_days and (edad_dias(base) or 10 ** 6) < args.max_age_days:
-        log(f"Se reutiliza el índice de fotos de hace {edad_dias(base)} días ({len(base['i']):,} fotos).")
+    edad = edad_dias(base) if base else None
+    if base and base.get('i') and args.max_age_days and edad is not None and edad < args.max_age_days:   # ojo: 0 días (generado hoy) también cuenta
+        log(f"Se reutiliza el índice de fotos de hace {edad} días ({len(base['i']):,} fotos).")
         guardar(args.out, base)
         return
 

@@ -128,6 +128,14 @@ class Generador(unittest.TestCase):
         self.assertEqual(self.cargar('imagenes.json')['i'], {'111': 'front_es.1', '222': 'front_es.2'})
         self.assertEqual(self.cargar('meta.json')['imagenes'], 2)
 
+    def test_reutiliza_el_indice_generado_hoy(self):
+        # 0 días de antigüedad también es "reciente" (antes se lo tomaba como desconocido y se volvía a bajar todo el volcado)
+        base = self.indice_anterior(0)
+        r = self.correr('--baseline', base, '--max-age-days', '30', '--csv', os.path.join(self.dir, 'no-existe.csv'))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn('Se reutiliza', r.stderr)
+        self.assertEqual(self.cargar('imagenes.json')['i'], {'111': 'front_es.1', '222': 'front_es.2'})
+
     def test_renueva_el_indice_viejo(self):
         base = self.indice_anterior(40)
         csv = os.path.join(self.dir, 'off.csv')
