@@ -65,7 +65,9 @@ npm start          # o doble clic en iniciar.bat (Windows)
 ```
 
 Se abre en http://localhost:3210. Cuando quieras precios más nuevos, volvé a correr `npm run datos`.
-Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` (proceso de datos y de fotos).
+Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` (proceso de datos y de fotos). Además,
+`npm run e2e` abre la web en Chrome o Edge (sin ventana) a 8 tamaños de pantalla (`-- --todo` para 16) para comprobar que no haya
+desbordes ni botones chicos, y prueba la app instalable y el uso sin conexión; necesita haber corrido `npm run datos`.
 
 ## Cómo funciona
 

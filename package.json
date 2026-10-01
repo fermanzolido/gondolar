@@ -9,6 +9,9 @@
     "test": "node test/optimizer.test.js && node test/bank.test.js && node test/rates.test.js && node test/worker.test.mjs",
     "publicar-datos": "python scripts/publish_datos.py",
     "imagenes": "python scripts/build_imagenes.py --names public/data/names.json --out public/data",
+    "e2e": "node test/e2e/pwa.mjs && node test/e2e/responsive.mjs",
+    "e2e:pwa": "node test/e2e/pwa.mjs",
+    "e2e:responsive": "node test/e2e/responsive.mjs",
     "test:datos": "python test/test_build_sepa.py && python test/test_build_imagenes.py",
     "deploy:api": "wrangler deploy"
   },
