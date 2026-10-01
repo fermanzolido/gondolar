@@ -1,0 +1,33 @@
+{
+  "id": "/",
+  "name": "Gondolar · Mirá todas las góndolas en una",
+  "short_name": "Gondolar",
+  "description": "Compará precios de supermercados argentinos, armá tu lista y mirá dónde conviene comprar cada cosa, con el costo del viaje incluido.",
+  "lang": "es-AR",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#eceee9",
+  "theme_color": "#0a6a4a",
+  "categories": ["shopping", "finance", "utilities"],
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ],
+  "shortcuts": [
+    { "name": "Buscar productos", "short_name": "Buscar", "description": "Buscá un producto y compará precios", "url": "./#buscar", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Mi compra", "short_name": "Mi compra", "description": "Tu lista y dónde conviene comprar cada cosa", "url": "./#compra", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] },
+    { "name": "Viaje y tiendas", "short_name": "Viaje", "description": "Tu ubicación y el costo de ir a cada tienda", "url": "./#viaje", "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }] }
+  ],
+  "screenshots": [
+    { "src": "screenshots/celular-buscar.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "Compará el precio de cada producto en todas las cadenas" },
+    { "src": "screenshots/celular-compra.png", "sizes": "780x1688", "type": "image/png", "form_factor": "narrow", "label": "Mirá dónde conviene comprar, con el viaje incluido" },
+    { "src": "screenshots/escritorio-buscar.png", "sizes": "1280x800", "type": "image/png", "form_factor": "wide", "label": "Compará el precio de cada producto en todas las cadenas" }
+  ]
+}

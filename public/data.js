@@ -37,6 +37,18 @@ window.Data = (() => {
   // promociones vigentes de una provincia: { t: [textos], p: { ean: [[cadena, precio, %, hasta, tipo, texto, sucursales%], ...] } }
   // tipo: 0 = precio promocional para cualquiera, 1 = pide un medio de pago, 2 = pide comprar varias unidades
   const promos = (prov) => once('promo:' + prov, async () => { await meta(); try { return await getJson(`promos/${prov}.json`, version); } catch { return { t: [], p: {} }; } });
+  // Índice de fotos de productos (Open Food Facts): { i: { ean: "front_es.93" | "779/089/500/0997/front_es.93" } }.
+  // Solo se pide si la persona permitió las fotos. null si la publicación no lo trae.
+  const images = () => once('images', async () => { await meta(); try { return await getJson('imagenes.json', version); } catch { return null; } });
+  const IMG_BASE = 'https://images.openfoodfacts.org/images/products/';
+  const folder = (ean) => (/^\d{13}$/.test(ean) ? `${ean.slice(0, 3)}/${ean.slice(3, 6)}/${ean.slice(6, 9)}/${ean.slice(9)}` : null);
+  // Dirección de la foto (miniatura de 200 px) de un producto, o '' si no tiene
+  function imageUrl(index, ean) {
+    const v = index && index.i && index.i[ean];
+    if (!v) return '';
+    const path = v.includes('/') ? v : (folder(ean) ? `${folder(ean)}/${v}` : '');
+    return path && /^[\w./-]+$/.test(path) && !path.includes('..') ? `${IMG_BASE}${path}.200.jpg` : '';
+  }
   const branches = () => once('branches', async () => { await meta(); return getJson('branches.json', version); });
 
   // Nombre para mostrar: agrega la cantidad ("500 gr") solo si el nombre no trae ningún número.
@@ -86,5 +98,5 @@ window.Data = (() => {
     return out;
   }
 
-  return { meta, names, prices, promos, branches, search, nearestBranches, haversineKm, display };
+  return { meta, names, prices, promos, images, imageUrl, branches, search, nearestBranches, haversineKm, display };
 })();

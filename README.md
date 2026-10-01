@@ -11,9 +11,12 @@ imprimís la lista dividida por tienda.
 
 ## Qué hace
 
-- **Compara hasta 13 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima (todo el país), más las regionales
-  Toledo (Mar del Plata), Mariano Max (Córdoba), California (Misiones) y Comodín (Jujuy), y Farmacity como cadena opcional
-  (es una farmacia, viene apagada). Las regionales se prenden solas si tienen una sucursal cerca de tu ubicación.
+- **Compara hasta 15 cadenas:** Carrefour, Jumbo, Disco, Vea, Día, Changomás, Coto y La Anónima (todo el país), más las regionales
+  Toledo (Mar del Plata), Mariano Max (Córdoba), California (Misiones), Comodín (Jujuy), Cooperativa Obrera (Bahía Blanca y la
+  Patagonia norte) y La Agrícola Regional (Entre Ríos), y Farmacity como cadena opcional (es una farmacia, viene apagada). Las
+  regionales se prenden solas si tienen una sucursal cerca de tu ubicación. Los formatos mayoristas que sí informan a SEPA ya están
+  dentro de sus cadenas (Carrefour Maxi, Mariano Max, Maxi Comodín); **Makro, Diarco, Maxiconsumo, Vital y Jaguar no informan a
+  SEPA**, así que no hay datos oficiales de sus precios (ver *Limitaciones*).
 - **Usa la base oficial SEPA** ([Precios Claros](https://datos.produccion.gob.ar/dataset/sepa-precios), Secretaría de Comercio
   de la Nación): precios que los comercios informan al Estado, actualizados todos los días. **No consulta los sitios de los
   supermercados.**
@@ -36,8 +39,16 @@ imprimís la lista dividida por tienda.
 - **Pesos o dólares:** el selector `ARS | USD` convierte todos los importes con la cotización que elijas: oficial, blue, MEP,
   contado con liqui, cripto, tarjeta o la oficial de cada banco (dolarapi.com y criptoya.com, a través de `/api/dolar`).
 - **Lista para el súper:** tickets por tienda con casilleros para ir tildando, impresión y copiado para WhatsApp.
-- **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; las tipografías y el mapa de terceros
-  se cargan únicamente si lo permitís. No muestra fotos de productos ni logos de las cadenas.
+- **Fotos de productos (opcionales):** no son de los supermercados (esas imágenes tienen derechos de autor): salen de
+  [Open Food Facts](https://world.openfoodfacts.org), una base abierta por código de barras con licencia CC BY-SA 3.0. Vienen
+  apagadas, se activan desde el aviso de privacidad o con "Activar fotos", y hoy cubren alrededor de 1 de cada 3 de los
+  productos que se pueden comparar (las marcas conocidas; no todos tienen foto).
+- **App instalable:** se puede instalar en el celular o la computadora (Chrome, Edge, Safari: "Agregar a inicio"). La web ofrece
+  instalarla al entrar, abre como una app y funciona sin conexión con los últimos precios que viste.
+- **Para cualquier pantalla:** se adapta de 280 px (celulares chicos y plegables) a monitores grandes, vertical y apaisado, con
+  botones del tamaño de un dedo, zonas seguras para pantallas con notch y el botón "atrás" del celular.
+- **Privacidad primero:** tu lista y tu ubicación viven solo en tu navegador; las tipografías, el mapa y las fotos de terceros
+  se cargan únicamente si lo permitís.
 
 ## Cómo usarlo
 
@@ -49,11 +60,12 @@ imprimís la lista dividida por tienda.
 git clone https://github.com/fermanzolido/gondolar.git
 cd gondolar
 npm run datos      # descarga y procesa los datos oficiales de hoy (~300 MB de bajada, 1 minuto)
+npm run imagenes   # opcional: arma el índice de fotos de productos (~1,3 GB de bajada, 2 minutos)
 npm start          # o doble clic en iniciar.bat (Windows)
 ```
 
 Se abre en http://localhost:3210. Cuando quieras precios más nuevos, volvé a correr `npm run datos`.
-Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` (proceso de datos).
+Para las pruebas: `npm test` (web, Worker y optimizador) y `npm run test:datos` (proceso de datos y de fotos).
 
 ## Cómo funciona
 
@@ -65,12 +77,18 @@ SEPA (datos.produccion.gob.ar) ──► tu compu con IP argentina, 1 vez por d�
                                                                     OpenStreetMap (Nominatim, OSRM)
 ```
 
-- `scripts/publish_datos.py` — corre `build_sepa.py`, sube el resultado como adjunto del release `datos` y le pide a GitHub
-  Actions que republique la web. Se corre **desde una computadora con IP argentina** (ver más abajo por qué).
+- `scripts/publish_datos.py` — corre `build_sepa.py` y `build_imagenes.py`, sube el resultado como adjunto del release `datos` y
+  le pide a GitHub Actions que republique la web. Se corre **desde una computadora con IP argentina** (ver más abajo por qué).
 - `scripts/build_sepa.py` — baja el ZIP diario de SEPA (~300 MB), unifica códigos de barras, limpia nombres y agrupa los
-  precios por provincia (mediana de las sucursales de cada cadena). Genera `meta.json`, `names.json`, `branches.json` y un
-  `prices/AR-X.json` por provincia (unos 9 MB comprimidos en total; cada persona baja ~2 MB). Si el formato oficial cambia y los
-  datos no pasan las validaciones, **falla** en vez de publicar datos rotos.
+  precios por provincia (mediana de las sucursales de cada cadena). Genera `meta.json`, `names.json`, `branches.json`, un
+  `prices/AR-X.json` y un `promos/AR-X.json` por provincia (unos 10 MB comprimidos en total; cada persona baja ~2 MB). SEPA publica
+  un ZIP por día de la semana y no todos los comercios informan todos los días: si al día más reciente le falta una cadena, la
+  completa con los días anteriores (y la web avisa de qué día es su dato). Si el formato oficial cambia y los datos no pasan las
+  validaciones, **falla** en vez de publicar datos rotos.
+- `scripts/build_imagenes.py` — lee el volcado oficial de Open Food Facts y arma `imagenes.json`: para cada código de barras de la app,
+  dónde está su foto. No descarga fotos. Se renueva una vez por mes; el resto de los días se reutiliza el índice ya publicado.
+- `public/manifest.webmanifest`, `public/sw.js`, `public/pwa.js` — la app instalable: manifiesto, service worker (funciona sin
+  conexión; primero la red para los archivos de la app, y guarda los datos de precios) y el cartel de instalación.
 - `public/data.js` — carga esos archivos y hace la búsqueda en el navegador.
 - `public/app.js` — la interfaz (HTML, CSS y JavaScript sin frameworks). Guarda todo en `localStorage`.
 - `public/optimizer.js` — el optimizador del plan: función pura, con tests en `test/`.
@@ -116,10 +134,10 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
    npm run publicar-datos     # descarga SEPA, lo procesa, lo sube al release "datos" y republica la web
    ```
    SEPA publica los datos del día alrededor de las 13:20 (hora argentina). Para automatizarlo en Windows, creá una tarea
-   programada que ejecute `scriptsactualizar-datos.bat` (deja un registro en `%LOCALAPPDATA%Gondolarpublicar-datos.log`).
+   programada que ejecute `scripts\actualizar-datos.bat` (deja un registro en `%LOCALAPPDATA%\Gondolar\publicar-datos.log`).
    Desde PowerShell, oculta y a las 14:30 (se pone al día si la computadora estaba apagada):
    ```powershell
-   $bat = (Resolve-Path scriptsactualizar-datos.bat).Path
+   $bat = (Resolve-Path scripts\actualizar-datos.bat).Path
    $accion = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless `"$bat`"" -WorkingDirectory (Get-Location).Path
    $ajustes = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
    Register-ScheduledTask -TaskName 'Gondolar - actualizar datos' -Action $accion -Trigger (New-ScheduledTaskTrigger -Daily -At '14:30') -Settings $ajustes
@@ -135,6 +153,12 @@ La web se aloja en **GitHub Pages** y la API corre en un **Cloudflare Worker**. 
   Changomás no vienen en los datos oficiales, así que sus precios son de lista.
 - Las promociones de bancos y billeteras **no son datos oficiales**: se cargan a mano una vez por mes en
   `public/promos-bancos.json` a partir de notas de prensa y hay que revisarlas y renovarlas. Cuando vencen dejan de mostrarse.
+- **Mayoristas:** Makro, Diarco, Maxiconsumo, Vital y Jaguar no informan sus precios a SEPA (en los siete ZIP de la semana hay solo
+  17 comercios y ninguno es uno de ellos), así que no se pueden comparar con datos oficiales. La única forma de tenerlos sería leer
+  sus sitios web, que es justo lo que este proyecto evita por razones legales y de términos de uso (varios, además, piden
+  registro para ver precios). Si los publican en datos abiertos, alcanza con agregarlos a `CHAINS`.
+- **Fotos:** vienen de Open Food Facts y solo hay para los productos que alguien de su comunidad cargó (hoy, alrededor de 1 de
+  cada 3 de los que se pueden comparar, sobre todo marcas conocidas). Las de las marcas propias de cada cadena casi nunca están.
 - SEPA publica un día por vez y no todos los productos de cada cadena figuran: el catálogo es más chico que el de sus webs
   (por ejemplo, Jumbo informa unos 10.700 productos).
 - Cada cadena informa a su modo: algunos nombres vienen abreviados. La app elige el más completo.
@@ -152,8 +176,8 @@ Si forkeás el proyecto, mantené la atribución y respetá la [política de uso
 ## Privacidad
 
 Sin cuentas, sin publicidad, sin métricas ni cookies de seguimiento. Tu lista, tus ajustes y tu ubicación se guardan
-solo en tu navegador. Las tipografías (Google Fonts) y el mapa (Leaflet + OpenStreetMap) están apagados hasta que los
-aceptás, y podés cambiarlo cuando quieras. Detalle completo, con qué recibe cada servicio y tus derechos, en el
+solo en tu navegador. Las tipografías (Google Fonts), el mapa (Leaflet + OpenStreetMap) y las fotos de productos (Open Food
+Facts) están apagados hasta que los aceptás, y podés cambiarlo cuando quieras. Detalle completo, con qué recibe cada servicio y tus derechos, en el
 [aviso legal y de privacidad](public/legal.html).
 
 ## Créditos
@@ -162,6 +186,8 @@ aceptás, y podés cambiarlo cuando quieras. Detalle completo, con qué recibe c
   Comercio de la Nación, licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/deed.es). Datos modificados.
 - Direcciones y rutas: © colaboradores de [OpenStreetMap](https://www.openstreetmap.org/copyright) (licencia ODbL).
 - Mapa: [Leaflet](https://leafletjs.com) (BSD-2).
+- Fotos de productos: [Open Food Facts](https://world.openfoodfacts.org) y sus colaboradores, licencia
+  [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/deed.es). Se muestran sin modificar y pueden incluir marcas de terceros.
 - Tipografías: Bricolage Grotesque, Instrument Sans e IBM Plex Mono (SIL Open Font License).
 
 ## Licencia

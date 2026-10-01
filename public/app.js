@@ -23,6 +23,7 @@
     refresh: '<path d="M20 11a8 8 0 0 0-14-4L4 9M4 4v5h5M4 13a8 8 0 0 0 14 4l2-2M20 20v-5h-5"/>',
     arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
     pin: '<path d="M12 21s7-6.2 7-11.5A7 7 0 0 0 5 9.5C5 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/>',
+    filter: '<path d="M4 6h16M7 12h10M10 18h4"/>', chev: '<path d="m6 9 6 6 6-6"/>',
     gps: '<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>',
   };
   const ic = (n) => `<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n]}</svg>`;
@@ -43,6 +44,8 @@
     table: null,                              // precios de la provincia elegida: ean -> [precio por cadena]
     promoTable: null,                         // promociones vigentes de esa provincia (ver Data.promos)
     bank: null,                               // promociones de bancos y billeteras (promos-bancos.json, cargadas a mano)
+    filtersOpen: false,                       // filtros desplegados (en celulares arrancan cerrados para que se vean antes los resultados)
+    images: null,                             // índice de fotos de Open Food Facts (solo se descarga si la persona permitió las fotos)
     dataError: '',
     view: 'search', selectedK: null,
     filters: { brands: new Set(), min: '', max: '', sort: 'rel', comparable: false, allBrands: false },
@@ -181,6 +184,27 @@
   const offerOf = (ean, id) => state.prices[ean]?.[id];
   const mk = (id, small) => { const s = storeById(id); return s ? `<span class="mk${small ? ' sm' : ''}" style="--c:${s.color}" title="${esc(s.name)}">${esc(sigla(s))}</span>` : ''; };
   const who = (id) => `${mk(id, true)}${esc(storeById(id).name)}`;
+
+  // ---------- fotos de productos ----------
+  // Las fotos NO son de los supermercados (sus fotos tienen derechos de autor y no se usan): salen de Open Food Facts, una base abierta
+  // con licencia CC BY-SA, por código de barras. Solo se piden si la persona lo permitió (el navegador le avisa a ese servidor su IP).
+  const photosAllowed = () => !!(window.Consent && window.Consent.allows('images'));
+  const photoOf = (ean) => (photosAllowed() && state.images ? Data.imageUrl(state.images, ean) : '');
+  const thumb = (ean, cls = '') => {
+    const u = photoOf(ean), px = cls === 'sm' ? 40 : 64;
+    return u ? `<img class="thumb ${cls}" src="${esc(u)}" alt="" width="${px}" height="${px}" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : '';
+  };
+  const imageNote = () => {
+    if (photosAllowed()) return state.images ? '<p class="xs mute img-note">Fotos: <a href="https://world.openfoodfacts.org" target="_blank" rel="noopener">Open Food Facts</a> y sus colaboradores, licencia <a href="https://creativecommons.org/licenses/by-sa/3.0/deed.es" target="_blank" rel="noopener">CC BY-SA 3.0</a>. Pueden incluir marcas de terceros y no todos los productos tienen foto.</p>' : '';
+    return state.data && state.data.imagenes ? '<p class="xs mute img-note">Las fotos de productos están desactivadas. <button type="button" class="link" data-act="images-on">Activar fotos</button> (se piden a Open Food Facts, que vería tu dirección IP).</p>' : '';
+  };
+  async function loadImages() {
+    if (!photosAllowed() || state.images) return;
+    state.images = await Data.images().catch(() => null);
+    if (state.images) { renderResults(); renderSide(); if (state.view === 'plan') renderPlanView(); }
+  }
+  // una foto que no carga (borrada, sin conexión) se oculta en vez de mostrar el ícono roto
+  document.addEventListener('error', (e) => { const t = e.target; if (t && t.tagName === 'IMG' && t.classList.contains('thumb')) t.classList.add('broken'); }, true);
 
   // ---------- marca propia ----------
   // Productos como "Carrefour Classic" o "Coto" solo se venden en su cadena: no se buscan en las demás.
@@ -335,7 +359,12 @@
   const chosenOption = (plan) => plan.options.find((o) => o.k === state.selectedK) || plan.best;
 
   // ---------- navegación ----------
-  function go(view) {
+  // La dirección lleva la pantalla (#buscar, #compra, #viaje): así el botón "atrás" del celular vuelve a la pantalla anterior
+  // en vez de salir de la app, y los atajos de la app instalada abren directo la pantalla que corresponde.
+  const VIEW_HASH = { search: 'buscar', plan: 'compra', trip: 'viaje' };
+  const HASH_VIEW = { buscar: 'search', compra: 'plan', viaje: 'trip' };
+  function go(view, { push = true } = {}) {
+    if (push && state.view !== view) { try { history.pushState({ view }, '', '#' + VIEW_HASH[view]); } catch { /* sin historial */ } }
     state.view = view; state.confirmClear = false;
     document.body.className = 'v-' + view;
     ['search', 'plan', 'trip'].forEach((v) => { $('#v-' + v).hidden = v !== view; });
@@ -349,6 +378,10 @@
     const g = e.target.closest('[data-go]');
     if (g) { e.preventDefault(); go(g.dataset.go); }
   });
+  window.addEventListener('popstate', (e) => {
+    const v = (e.state && e.state.view) || HASH_VIEW[location.hash.slice(1)] || (state.cart.length ? 'plan' : 'search');
+    if (v !== state.view) go(v, { push: false });
+  });
 
   // ---------- Buscar ----------
   const SUGGESTIONS = ['leche entera', 'yerba mate', 'aceite de girasol', 'fideos spaghetti', 'coca cola 2,25'];
@@ -358,7 +391,7 @@
       <p class="lede">Armá tu lista y te decimos en qué súper llevar cada cosa, con el costo de ir hasta cada uno incluido.</p>
       <form id="searchForm" class="search-form" role="search">
         <div class="field">${ic('search')}<input id="q" type="search" placeholder="Leche, yerba, aceite, coca cola 2,25…" autocomplete="off" required minlength="2" aria-label="Buscar producto"></div>
-        <button class="btn primary" type="submit"><span>Buscar</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS.search}</svg></button>
+        <button class="btn primary" type="submit" aria-label="Buscar"><span>Buscar</span><svg class="ic" viewBox="0 0 24 24" aria-hidden="true">${ICONS.search}</svg></button>
       </form>
       <div class="chips-row" id="provRow"></div>
       <div class="chips-row" id="storeChips"></div>
@@ -399,7 +432,7 @@
   const promoChip = (o) => {
     if (!o.promo && !o.aviso) return '';
     const applied = o.promo && o.promo.applied;
-    return `<span class="off${applied ? '' : ' soft'}" title="${esc(promoTitle(o))}">${applied ? '−' + o.promo.pct + '%' : o.promo ? 'promo*' : '+promo'}</span>`;
+    return `<span class="dscto${applied ? '' : ' soft'}" title="${esc(promoTitle(o))}">${applied ? '−' + o.promo.pct + '%' : o.promo ? 'promo*' : '+promo'}</span>`;
   };
 
   function cmpRows(ean) {
@@ -447,6 +480,12 @@
     const key = { asc: (g) => (groupStats(g.ean) || { min: Infinity }).min, desc: (g) => -(groupStats(g.ean) || { min: -Infinity }).min, save: (g) => { const s = groupStats(g.ean); return s ? -(s.max - s.min) : Infinity; } }[f.sort];
     return key ? list.map((g, i) => ({ g, i, k: key(g) })).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.g) : list;
   }
+  // "30 productos" / "12 de 30 productos" (en la barra de filtros y en el botón que la pliega)
+  function updateFilterCount() {
+    const n = visibleGroups().length, total = state.lastGroups.length;
+    const texto = n === total ? `${n} productos` : `${n} de ${total} productos`;
+    ['#fCount', '#fCountM'].forEach((id) => { const el = $(id); if (el) el.textContent = texto; });
+  }
   function renderFilters() {
     const box = $('#filters'); if (!box) return;
     if (state.searching || !state.lastGroups.length) { box.innerHTML = ''; return; }
@@ -458,8 +497,11 @@
     const shown = f.allBrands ? sorted : sorted.filter(([k], i) => i < 12 || f.brands.has(k));
     const prices = state.lastGroups.map((g) => (groupStats(g.ean) || {}).min).filter((n) => n != null);
     const range = prices.length ? `${fmtArs(Math.min(...prices))} a ${fmtArs(Math.max(...prices))} (en pesos)` : '';
-    const active = f.brands.size || f.min !== '' || f.max !== '' || f.comparable || f.sort !== 'rel';
-    box.innerHTML = `<div class="filters">
+    const nActive = f.brands.size + (f.min !== '' ? 1 : 0) + (f.max !== '' ? 1 : 0) + (f.comparable ? 1 : 0) + (f.sort !== 'rel' ? 1 : 0);
+    const active = nActive > 0;
+    box.innerHTML = `<div class="filters${state.filtersOpen ? ' open' : ''}">
+      <button type="button" class="f-toggle" data-act="filters-toggle" aria-expanded="${state.filtersOpen}" aria-controls="fBody">${ic('filter')}<span>Filtros y orden</span>${nActive ? `<span class="n" aria-label="${nActive} activos">${nActive}</span>` : ''}<span class="f-count-m sm mute" id="fCountM" aria-live="polite"></span>${ic('chev')}</button>
+      <div class="f-body" id="fBody">
       <div class="f-row">
         <div class="fld-inline"><span class="eyebrow">Precio</span>
           <span class="inp sm"><em>$</em><input id="fMin" type="number" min="0" step="100" placeholder="desde" value="${esc(f.min)}" aria-label="Precio mínimo"></span><span class="mute">a</span>
@@ -473,10 +515,12 @@
         <span class="f-count sm mute" id="fCount" aria-live="polite"></span>
         ${active ? '<button class="link" data-act="filters-clear">Limpiar filtros</button>' : ''}
       </div>
-      ${sorted.length > 1 ? `<div class="f-brands"><span class="eyebrow">Marca</span>${shown.map(([k, b]) => `<button type="button" class="chip brand" data-brand="${esc(k)}" aria-pressed="${f.brands.has(k)}">${esc(b.label)}<span class="n">${b.n}</span></button>`).join('')}
+      ${sorted.length > 1 ? `<div class="f-brands"><span class="eyebrow">Marca</span>${shown.map(([k, b]) => `<button type="button" class="chip bchip" data-brand="${esc(k)}" aria-pressed="${f.brands.has(k)}">${esc(b.label)}<span class="n">${b.n}</span></button>`).join('')}
         ${sorted.length > shown.length ? `<button type="button" class="link" data-act="brands-more">Ver todas (${sorted.length})</button>` : (f.allBrands && sorted.length > 12 ? '<button type="button" class="link" data-act="brands-more">Ver menos</button>' : '')}</div>` : ''}
       ${range ? `<div class="xs mute">Los resultados van de ${range}.</div>` : ''}
+      </div>
     </div>`;
+    updateFilterCount();
   }
 
   function renderResults() {
@@ -488,16 +532,16 @@
     }
     if (state.searchRan && !state.lastGroups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>No encontré nada con esa búsqueda</b>Probá con menos palabras o con la marca sola.</div>'; return; }
     const groups = visibleGroups();
-    const fc = $('#fCount'); if (fc) fc.textContent = groups.length === state.lastGroups.length ? `${groups.length} productos` : `${groups.length} de ${state.lastGroups.length} productos`;
+    updateFilterCount();
     if (state.lastGroups.length && !groups.length) { box.innerHTML = '<div class="empty" style="grid-column:1/-1"><b>Ningún producto cumple los filtros</b>Probá con otro rango de precio o quitá alguna marca.<div style="margin-top:14px"><button class="btn sm" data-act="filters-clear">Limpiar filtros</button></div></div>'; return; }
     box.innerHTML = groups.map((g) => {
       const q = cartQty(g.ean), at = chosenStore(itemByEan(g.ean));
       return `<article class="p" data-ean="${esc(g.ean)}">
-        <div class="p-top"><div><div class="p-brand">${esc(g.brand)}</div><div class="p-name">${esc(g.name)}</div>${ownersFor(g.ean) ? '<span class="pill soft" style="margin-top:7px">Marca propia</span>' : ''}</div></div>
+        <div class="p-top">${thumb(g.ean)}<div><div class="p-brand">${esc(g.brand)}</div><div class="p-name">${esc(g.name)}</div>${ownersFor(g.ean) ? '<span class="pill soft" style="margin-top:7px">Marca propia</span>' : ''}</div></div>
         <ul class="cmp">${cmpRows(g.ean)}</ul>
         <div class="p-foot">${q ? `<span class="in">${ic('check')}En tu lista${at ? ` · en ${esc(storeById(at).name)}` : ''}</span>${stepper(g.ean, q)}` : `<button class="btn primary block" data-act="add" data-ean="${esc(g.ean)}">${ic('plus')}Agregar a la lista</button>`}</div>
       </article>`;
-    }).join('');
+    }).join('') + imageNote();
   }
 
   // La búsqueda se hace acá, sobre los datos oficiales ya descargados: no se consulta a ningún supermercado.
@@ -515,6 +559,9 @@
       state.filters.brands.clear(); state.filters.allBrands = false; // las marcas cambian con cada búsqueda
       status.textContent = groups.length ? `Precios de ${provName(state.settings.prov)}. Primero los productos que están en más cadenas. Con el + de cada tienda lo elegís ahí; el botón verde lo agrega donde sale más barato.` : '';
       renderFilters(); renderResults(); renderSide(); renderDock();
+      if (groups.length && window.matchMedia('(max-width: 640px)').matches) {   // en el celular los resultados quedan debajo de los controles
+        const f = $('#filters'); if (f) f.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' });
+      }
     } catch (err) { state.searching = false; status.textContent = 'No pude buscar: ' + err.message; renderFilters(); renderResults(); }
   }
 
@@ -530,7 +577,8 @@
     const rows = state.cart.map((i) => {
       const offers = enabledStores().map((s) => ({ s, o: offerOf(i.ean, s.id) })).filter((x) => x.o).sort((a, b) => a.o.price - b.o.price);
       const c = offers[0], f = chosenStore(i), fo = f && offerOf(i.ean, f);
-      return `<li class="t-item"><div class="t-name" title="${esc(i.name)}">${esc(i.name)}</div>
+      const img = thumb(i.ean, 'sm');
+      return `<li class="t-item${img ? ' has-img' : ''}">${img}<div class="t-name" title="${esc(i.name)}">${esc(i.name)}</div>
         ${stepper(i.ean, i.qty)}
         <div class="t-best">${fo ? `En ${esc(storeById(f).name)}: <b>${fmt(fo.price)}</b>` : c ? `Mejor: <b>${fmt(c.o.price)}</b> en ${esc(c.s.name)}` : state.loadingPrices ? 'Consultando…' : 'Sin precio'}</div></li>`;
     }).join('');
@@ -569,7 +617,12 @@
   }
 
   // Atribución que exige la licencia CC BY 4.0 de los datos, y aclaración de qué se hizo con ellos.
-  const sepaNote = () => `Fuente: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación (licencia CC BY 4.0), datos del ${dataDate() ? fmtDate(dataDate()) : 'último día publicado'}. Gondolar los agrupó por provincia usando la mediana de las sucursales de cada cadena. Son precios de góndola informados por los comercios: pueden diferir en tu sucursal. ${state.settings.promos ? 'Incluyen las promociones vigentes que informan los comercios para cualquier persona (sin medio de pago ni cantidad mínima), marcadas con su descuento: consultá si rigen en tu sucursal.' : 'No incluyen promociones.'}`;
+  // cadenas que no informaron en el día más reciente: se usa su último dato disponible
+  const lateNote = () => {
+    const l = state.stores.filter((s) => s.fecha);
+    return l.length ? ` Algunas cadenas no informaron ese día y se usa su último dato disponible: ${l.map((s) => `${esc(s.name)} (${fmtDate(new Date(s.fecha + 'T12:00:00'))})`).join(', ')}.` : '';
+  };
+  const sepaNote = () => `Fuente: <a href="https://datos.produccion.gob.ar/dataset/sepa-precios" target="_blank" rel="noopener">Precios Claros – Base SEPA</a>, Secretaría de Comercio de la Nación (licencia CC BY 4.0), datos del ${dataDate() ? fmtDate(dataDate()) : 'último día publicado'}. Gondolar los agrupó por provincia usando la mediana de las sucursales de cada cadena. Son precios de góndola informados por los comercios: pueden diferir en tu sucursal. ${state.settings.promos ? 'Incluyen las promociones vigentes que informan los comercios para cualquier persona (sin medio de pago ni cantidad mínima), marcadas con su descuento: consultá si rigen en tu sucursal.' : 'No incluyen promociones.'}${lateNote()}`;
 
   // ---------- Plan ----------
   function renderPlanView() {
@@ -579,7 +632,7 @@
       return;
     }
     const n = state.cart.reduce((t, i) => t + i.qty, 0);
-    const head = `<div class="sect-h" style="margin-top:0"><div><h1 class="h1" style="font-size:clamp(28px,4vw,38px)">Tu compra</h1><p>${state.cart.length} productos, ${n} ${n === 1 ? 'unidad' : 'unidades'} · precios de ${esc(provName(state.settings.prov))}, ${dataDate() ? 'SEPA del ' + fmtDate(dataDate()) : 'SEPA'}${state.home ? ` · viajes desde ${esc(shortLabel(state.home.label))}` : ''}</p></div>
+    const head = `<div class="sect-h" style="margin-top:0"><div><h1 class="h1" style="font-size:clamp(28px,4vw,38px)">Tu compra</h1><p>${state.cart.length} ${state.cart.length === 1 ? 'producto' : 'productos'}, ${n} ${n === 1 ? 'unidad' : 'unidades'} · precios de ${esc(provName(state.settings.prov))}, ${dataDate() ? 'SEPA del ' + fmtDate(dataDate()) : 'SEPA'}${state.home ? ` · viajes desde ${esc(shortLabel(state.home.label))}` : ''}</p></div>
       <div class="actions"><button class="btn sm" data-go="search">${ic('plus')}Agregar productos</button></div></div>`;
     if (state.loadingPrices) { box.innerHTML = `<div class="narrow">${head}<div class="loading-plan"><div class="skel-line"></div><div class="skel-line"></div><div class="skel-line"></div></div></div>`; return; }
 
@@ -618,8 +671,8 @@
           <ul class="r-list">${lines.map((l) => {
             const o = offerOf(l.ean, id), key = `${id}|${l.ean}`;
             const other = enabledStores().filter((s) => s.id !== id && offerOf(l.ean, s.id)).map((s) => ({ s, p: offerOf(l.ean, s.id).price })).sort((a, b) => a.p - b.p)[0];
-            return `<li class="r-line"><input class="cb" type="checkbox" data-ck="${esc(key)}" aria-label="Ya lo agregué: ${esc(itemByEan(l.ean).name)}" ${state.checked[key] ? 'checked' : ''}>
-              <div class="nm">${esc(itemByEan(l.ean).name)} ${promoChip(o)}</div>
+            return `<li class="r-line"><label class="tick"><input class="cb" type="checkbox" data-ck="${esc(key)}" aria-label="Ya lo agregué: ${esc(itemByEan(l.ean).name)}" ${state.checked[key] ? 'checked' : ''}>
+              ${thumb(l.ean, 'sm')}<span class="nm">${esc(itemByEan(l.ean).name)} ${promoChip(o)}</span></label>
               <div class="pr">${fmt(l.price * l.qty)}${l.qty > 1 ? `<small>${l.qty} × ${fmt(l.price)}</small>` : ''}</div>
               <div class="alt">${chosenStore(itemByEan(l.ean)) === id ? (other && other.p < l.price ? `Tu elección · más barato en ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (−${fmt(l.price - other.p)})` : 'Tu elección · además es el más barato') : other ? `Otra opción: ${esc(other.s.name)} <span class="num">${fmt(other.p)}</span> (${other.p >= l.price ? '+' : '−'}${fmt(Math.abs(other.p - l.price))})` : 'Solo la tiene esta tienda'}</div></li>`;
           }).join('')}</ul>
@@ -691,7 +744,7 @@
     if (!m) return '';
     const head = '<div class="sect-h"><div><h2 class="h2">Promos de bancos y billeteras</h2><p>Descuentos extra según con qué pagues. Elegí tus medios de pago y te calculo el ahorro en cada tienda.</p></div></div>';
     if (m.empty) return `<section class="sect" id="bank">${head}<div class="bank"><p class="sm mute">No hay promociones de bancos cargadas para hoy. La última carga es del ${fmtDate(new Date(state.bank.actualizado + 'T12:00:00'))} y se actualizan una vez por mes.</p></div></section>`;
-    const chips = Bank.medios(state.bank.promos, m.iso).map((x) => `<button type="button" class="chip" data-act="medio" data-medio="${esc(x)}" aria-pressed="${m.sel.has(x)}">${esc(x)}</button>`).join('');
+    const chips = Bank.medios(state.bank.promos, m.iso).map((x) => `<button type="button" class="chip bchip plain" data-act="medio" data-medio="${esc(x)}" aria-pressed="${m.sel.has(x)}">${esc(x)}</button>`).join('');
     const days = [1, 2, 3, 4, 5, 6, 0];
     const daySel = `<label class="fld-inline"><span class="eyebrow">Día de compra</span><select id="bankDay" class="select sm" aria-label="Día en que vas a comprar"><option value="hoy"${state.settings.dia === 'hoy' ? ' selected' : ''}>Hoy (${Bank.DIAS[new Date().getDay()]})</option>${days.map((d) => `<option value="${d}"${String(state.settings.dia) === String(d) ? ' selected' : ''}>${Bank.DIAS[d][0].toUpperCase() + Bank.DIAS[d].slice(1)}</option>`).join('')}</select></label>`;
     const dayName = Bank.DIAS[m.day];
@@ -838,11 +891,14 @@
       <section class="sect"><div class="sect-h"><div><h2 class="h2">Tiendas</h2><p>Activá donde comprás. Km y minutos se calculan solos desde tu ubicación (ida y vuelta, con el tiempo dentro del súper); si querés, corregilos a mano.</p></div></div>
         <div class="rank tbl-wrap"><div class="srow srow-h"><span>Usar</span><span>Tienda</span><span>Km ida y vuelta</span><span>Minutos</span><span>Voy sí o sí</span><span style="text-align:right">Viaje</span></div>
         ${state.stores.map((s) => { const c = cfg(s.id); return `<div class="srow${isOn(s.id) ? '' : ' off'}" data-row="${s.id}">
-          <label><input class="sw" type="checkbox" data-store="${s.id}" data-field="enabled" ${isOn(s.id) ? 'checked' : ''} aria-label="Usar ${esc(s.name)}"></label>
-          <div class="who">${mk(s.id)}<div>${esc(s.name)}${s.note ? ` <span class="xs mute">${esc(s.note)}</span>` : ''}<small data-branch="${s.id}">${branchNote(s.id)}</small></div></div>
-          <label class="inp f-km"><input type="number" min="0" step="0.5" data-store="${s.id}" data-field="km" value="${c.km}" aria-label="Kilómetros ${esc(s.name)}"><em>km</em></label>
-          <label class="inp f-min"><input type="number" min="0" step="5" data-store="${s.id}" data-field="min" value="${c.min}" aria-label="Minutos ${esc(s.name)}"><em>min</em></label>
-          <label class="f-man" style="display:flex;align-items:center;gap:8px"><input class="sw" type="checkbox" data-store="${s.id}" data-field="mandatory" ${c.mandatory ? 'checked' : ''} aria-label="Voy sí o sí a ${esc(s.name)}"><span class="xs mute">sí o sí</span></label>
+          <label class="f-use"><input class="sw" type="checkbox" data-store="${s.id}" data-field="enabled" ${isOn(s.id) ? 'checked' : ''} aria-label="Usar ${esc(s.name)}"></label>
+          <div class="who">${mk(s.id)}<span class="nm">${esc(s.name)}${s.note ? ` <span class="xs mute">${esc(s.note)}</span>` : ''}</span></div>
+          <small class="f-note" data-branch="${s.id}">${branchNote(s.id)}</small>
+          <div class="s-fields">
+            <label class="f-km"><span class="lbl">Km ida y vuelta</span><span class="inp"><input type="number" inputmode="decimal" min="0" step="0.5" data-store="${s.id}" data-field="km" value="${c.km}" aria-label="Kilómetros ${esc(s.name)}"><em>km</em></span></label>
+            <label class="f-min"><span class="lbl">Minutos</span><span class="inp"><input type="number" inputmode="numeric" min="0" step="5" data-store="${s.id}" data-field="min" value="${c.min}" aria-label="Minutos ${esc(s.name)}"><em>min</em></span></label>
+            <label class="f-man"><span class="lbl">Voy sí o sí</span><input class="sw" type="checkbox" data-store="${s.id}" data-field="mandatory" ${c.mandatory ? 'checked' : ''} aria-label="Voy sí o sí a ${esc(s.name)}"></label>
+          </div>
           <div class="cost" id="trip-${s.id}">${c.mandatory ? 'sin costo' : fmt(tripCost(s.id))}</div></div>`; }).join('')}</div>
         <p class="xs mute" style="margin-top:12px">"Voy sí o sí" es para la tienda donde ya ibas a ir: su viaje no se suma al costo. Las sucursales (direcciones y ubicación) son los datos oficiales de SEPA; las distancias por calle se calculan con OpenStreetMap. Carrefour Express queda afuera porque sus precios son distintos a los del resto de la cadena.</p></section></div>`;
     if (state.home && !state.editHome) initMap();
@@ -888,6 +944,7 @@
     const el = e.target.closest('[data-act]'); if (!el) return;
     const ean = el.dataset.ean;
     switch (el.dataset.act) {
+      case 'filters-toggle': state.filtersOpen = !state.filtersOpen; renderFilters(); return;
       case 'filters-clear': Object.assign(state.filters, { min: '', max: '', sort: 'rel', comparable: false }); state.filters.brands.clear(); renderFilters(); renderResults(); return;
       case 'brands-more': state.filters.allBrands = !state.filters.allBrands; renderFilters(); return;
       case 'rates-retry': loadRates(true); return;
@@ -897,6 +954,7 @@
       case 'home-cancel': state.editHome = false; state.geoResults = []; state.geoMsg = ''; renderTrip(); return;
       case 'branches-refresh': state.stores.forEach((s) => { cfg(s.id).manual = false; }); state.branches = { key: homeKey(), byStore: {} }; fetchBranches(true); return;
       case 'auto': { const c = cfg(el.dataset.store); c.manual = false; applyBranch(el.dataset.store); afterTripChange(); return; }
+      case 'images-on': window.Consent.update({ images: true }); return;
       case 'medio': {
         const med = new Set(state.settings.medios || []);
         if (!med.delete(el.dataset.medio)) med.add(el.dataset.medio);
@@ -951,7 +1009,8 @@
 
   // al cambiar los permisos de privacidad (mapa) se vuelve a dibujar lo que está en pantalla
   window.addEventListener('consent-change', () => {
-    renderResults();
+    loadImages();
+    renderResults(); renderSide();
     if (state.view === 'plan') renderPlanView();
     if (state.view === 'trip') renderTrip();
   });
@@ -972,9 +1031,10 @@
     buildSearch(); updateCount(); updateBarNote(); renderCur();
     if (state.currency.cur === 'USD') loadRates();
     loadBank();
+    loadImages();
     await loadTable();
     Data.names().catch(() => {}); // se va preparando la búsqueda mientras la persona mira la pantalla
-    go(state.cart.length ? 'plan' : 'search');
+    go(HASH_VIEW[location.hash.slice(1)] || (state.cart.length ? 'plan' : 'search'), { push: false });
     renderResults();
     fetchBranches(); // completa las sucursales de tiendas que todavía no se buscaron
     // ubicaciones guardadas antes de que existieran los precios por provincia: se completa la provincia

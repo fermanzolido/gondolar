@@ -193,6 +193,89 @@ class ParsePromo(unittest.TestCase):
         self.assertIsNone(self.b.parse_promo('1000', 'abc', 'x', self.hoy))
 
 
+def make_fixture_anterior(path):
+    """ZIP de un día anterior: trae a Coto (que el día más reciente no informó) y también datos viejos de Carrefour."""
+    coto = inner_zip(
+        ['12|1|30548083156|COTO CENTRO INTEGRAL|COTO CICSA|www.cotodigital.com.ar|2026-09-28|1.0'],
+        [suc(12, 1, 1, 'COTO BELGRANO', 'Hipermercado', 'Av. Cabildo', 1000, '-34.5700', '-58.4500', 'Belgrano', 'AR-C')],
+        [prod(12, 1, 1, '7790895000997', 'COCA COLA 2.25 LT', 5700, 'COCA COLA'),
+         prod(12, 1, 1, '7790070411136', 'ARROZ LARGO FINO', 2100, 'GALLO')])
+    carrefour_viejo = inner_zip(
+        ['10|1|30687310434|INC S.A.|Hipermercado Carrefour|www.carrefour.com.ar|2026-09-28|1.0'],
+        [suc(10, 1, 1, 'HIPER CENTRO', 'Hipermercado', 'Av. Rivadavia', 2243, '-34.6100', '-58.4000', 'Almagro', 'AR-C')],
+        [prod(10, 1, 1, '7790895000997', 'GASEOSA COLA COCA COLA 2250 CM3', 4000, 'COCA COLA')])
+    with zipfile.ZipFile(path, 'w') as outer:
+        outer.writestr('2026-09-28/', '')
+        outer.writestr('2026-09-28/sepa_1_comercio-sepa-12_2026-09-28_09-05-11.zip', coto)
+        outer.writestr('2026-09-28/sepa_1_comercio-sepa-10_2026-09-28_09-05-11.zip', carrefour_viejo)
+
+
+class CompletarConDiasAnteriores(unittest.TestCase):
+    """Algunos comercios no informan todos los días: si falta una cadena en el ZIP más reciente se la completa con el día anterior."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        hoy, ayer = os.path.join(cls.tmp.name, 'hoy.zip'), os.path.join(cls.tmp.name, 'ayer.zip')
+        cls.out = os.path.join(cls.tmp.name, 'data')
+        make_fixture(hoy)
+        make_fixture_anterior(ayer)
+        cls.run_ok = subprocess.run([sys.executable, SCRIPT, '--zip', hoy, '--zip', ayer, '--out', cls.out], capture_output=True, text=True,
+                                    env={**os.environ, 'SEPA_RELAX': '1', 'PYTHONIOENCODING': 'utf-8'})
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.tmp.cleanup()
+
+    def load(self, *parts):
+        with open(os.path.join(self.out, *parts), encoding='utf-8') as f:
+            return json.load(f)
+
+    def test_termina_bien(self):
+        self.assertEqual(self.run_ok.returncode, 0, self.run_ok.stderr)
+        self.assertIn('Completando con el ZIP del 2026-09-28', self.run_ok.stderr)
+
+    def test_la_cadena_que_faltaba_entra_con_la_fecha_de_su_dia(self):
+        cadenas = self.load('meta.json')['cadenas']
+        ids = [c['id'] for c in cadenas]
+        self.assertEqual(self.load('meta.json')['fecha'], '2026-09-29')
+        self.assertIn('coto', ids)
+        self.assertEqual(next(c for c in cadenas if c['id'] == 'coto')['fecha'], '2026-09-28')
+        self.assertNotIn('fecha', next(c for c in cadenas if c['id'] == 'carrefour'))   # esa sí vino en el día más reciente
+        self.assertEqual(self.load('prices', 'AR-C.json')['7790895000997'][ids.index('coto')], 5700)
+
+    def test_no_pisa_los_datos_del_dia_mas_reciente(self):
+        ids = [c['id'] for c in self.load('meta.json')['cadenas']]
+        self.assertEqual(self.load('prices', 'AR-C.json')['7790895000997'][ids.index('carrefour')], 5900)   # no los 4000 del día anterior
+
+    def test_los_productos_de_la_cadena_completada_tambien_entran(self):
+        self.assertIn('7790070411136', self.load('names.json')['e'])
+        self.assertTrue([b for b in self.load('branches.json') if b[2] == 'Coto Belgrano'])
+
+
+class OrdenDeZips(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('build_sepa', SCRIPT)
+        cls.b = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.b)
+
+    def nombres(self, lista):
+        return [r['name'] for r in self.b.ordenar_por_dia([{'name': n} for n in lista])]
+
+    def test_despues_del_principal_van_los_dias_hacia_atras(self):
+        # el portal vuelve a subir el sábado y el domingo después del martes: la fecha de modificación engaña
+        self.assertEqual(self.nombres(['Miércoles', 'Domingo', 'Sábado', 'Martes', 'Lunes', 'Viernes', 'Jueves']),
+                         ['Miércoles', 'Martes', 'Lunes', 'Domingo', 'Sábado', 'Viernes', 'Jueves'])
+
+    def test_da_la_vuelta_a_la_semana(self):
+        self.assertEqual(self.nombres(['Lunes', 'Sábado', 'Domingo', 'Martes']), ['Lunes', 'Domingo', 'Sábado', 'Martes'])
+
+    def test_si_no_son_dias_de_la_semana_se_deja_como_vino(self):
+        self.assertEqual(self.nombres(['Otro', 'Lunes']), ['Otro', 'Lunes'])
+
+
 class CheckChains(unittest.TestCase):
     """Las cadenas regionales se omiten (con aviso) si no vienen bien en SEPA; las principales frenan la publicación."""
 
@@ -262,6 +345,9 @@ class CheckChains(unittest.TestCase):
             for k in ('id', 'sigla', 'name', 'color', 'web', 'cuit'):
                 self.assertTrue(c.get(k), (c['id'], k))
         self.assertIn('farmacity', ids)
+        self.assertIn('coopobrera', ids)
+        self.assertIn('lar', ids)
+        self.assertTrue(all(c.get('regional') for c in self.b.CHAINS if c['id'] in ('coopobrera', 'lar')))
         self.assertTrue(next(c for c in self.b.CHAINS if c['id'] == 'farmacity').get('optativa'))
 
 

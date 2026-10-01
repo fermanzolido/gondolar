@@ -8,7 +8,8 @@
     "datos": "python scripts/build_sepa.py --download --out public/data",
     "test": "node test/optimizer.test.js && node test/bank.test.js && node test/rates.test.js && node test/worker.test.mjs",
     "publicar-datos": "python scripts/publish_datos.py",
-    "test:datos": "python test/test_build_sepa.py",
+    "imagenes": "python scripts/build_imagenes.py --names public/data/names.json --out public/data",
+    "test:datos": "python test/test_build_sepa.py && python test/test_build_imagenes.py",
     "deploy:api": "wrangler deploy"
   },
   "engines": { "node": ">=18" },

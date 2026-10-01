@@ -35,6 +35,7 @@ jobs:
         run: |
           npm test
           python test/test_build_sepa.py
+          python test/test_build_imagenes.py
 
       - name: Traer los datos de precios ya procesados (release "datos")
         env:

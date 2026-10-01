@@ -3,7 +3,8 @@
 Convierte la base SEPA (Precios Claros, Secretaría de Comercio de la Nación) en archivos livianos para la web.
 
 Fuente:   https://datos.produccion.gob.ar/dataset/sepa-precios   (licencia Creative Commons Atribución 4.0)
-Entrada:  el ZIP diario (un ZIP por comercio adentro, con comercio.csv, sucursales.csv y productos.csv)
+Entrada:  el ZIP diario (un ZIP por comercio adentro, con comercio.csv, sucursales.csv y productos.csv). El portal publica uno por día de la
+          semana; algunos comercios no informan todos los días, así que si a un día le falta una cadena se la completa con los días anteriores
 Salida:   <out>/meta.json, names.json, branches.json, prices/AR-X.json y promos/AR-X.json (uno por provincia)
 
 Qué hace con los datos:
@@ -14,12 +15,12 @@ Qué hace con los datos:
 
 Uso:
   python scripts/build_sepa.py --download --out public/data
-  python scripts/build_sepa.py --zip sepa_martes.zip --out public/data
+  python scripts/build_sepa.py --zip sepa_martes.zip [--zip sepa_lunes.zip ...] --out public/data
 
 Solo usa la librería estándar. Si el formato oficial cambia y los resultados no pasan las validaciones, termina con
 error para que no se publiquen datos rotos.
 """
-import argparse, collections, csv, datetime, io, json, os, re, shutil, statistics, sys, tempfile, time, urllib.request, zipfile
+import argparse, collections, csv, datetime, io, json, os, re, shutil, statistics, sys, tempfile, time, unicodedata, urllib.request, zipfile
 
 API = 'https://datos.produccion.gob.ar/api/3/action/package_show?id=sepa-precios'
 UA = 'Gondolar/1.0 (+https://github.com/fermanzolido/gondolar; datos abiertos SEPA, uso sin fines de lucro)'
@@ -46,6 +47,10 @@ CHAINS = [
          requerida=False, min_suc=3, min_eans=1000),
     dict(id='comodin', regional=True, sigla='Cm', name='Comodín', color='#92400e', web='https://www.supermercadoscomodin.com', cuit='30578411174',
          requerida=False, min_suc=1, min_eans=300),
+    dict(id='coopobrera', regional=True, sigla='Ob', name='Cooperativa Obrera', color='#4d7c0f', web='https://www.cooperativaobrera.coop', cuit='30525705931',
+         requerida=False, min_suc=20, min_eans=3000),
+    dict(id='lar', regional=True, sigla='LAR', name='La Agrícola Regional', color='#0e7490', web='https://www.lar.coop', cuit='33504047089',
+         requerida=False, min_suc=2, min_eans=1000),
     # Farmacia (no es un supermercado): viene apagada por defecto en la app.
     dict(id='farmacity', sigla='Fa', name='Farmacity', color='#0284c7', web='https://www.farmacity.com', cuit='30692138747',
          requerida=False, optativa=True, min_suc=50, min_eans=1000),
@@ -65,6 +70,8 @@ MIN_EANS_TOTAL = 40000
 # (Unicoop informaba junio de 2025 y sus precios eran 20-30% más bajos que los de todas las demás). Solo se aplica a las
 # regionales: Changomás informa fechas de 2017, pero sus precios son actuales.
 MAX_DIAS_SIN_ACTUALIZAR = 45
+# Cuántos días anteriores se pueden leer para completar las cadenas que no informaron en el día más reciente.
+MAX_DIAS_ATRAS = 4
 if os.environ.get("SEPA_RELAX"):  # solo para las pruebas con datos de juguete
     MIN_SUCURSALES_POR_CADENA = MIN_EANS_POR_CADENA = MIN_EANS_TOTAL = 0
 
@@ -126,25 +133,57 @@ def rows(z, name):
             yield dict(zip(header, r))
 
 
-def download_latest(dest):
-    def get(url):
-        req = urllib.request.Request(url, headers={'User-Agent': UA})
-        return urllib.request.urlopen(req, timeout=120)
+def get(url):
+    req = urllib.request.Request(url, headers={'User-Agent': UA})
+    return urllib.request.urlopen(req, timeout=120)
+
+
+def list_zips():
+    """ZIP diarios del portal (hay uno por día de la semana), del más reciente al más viejo."""
     log('Consultando el catálogo oficial…')
     pkg = json.load(get(API))['result']
     lic = pkg.get('license_title') or pkg.get('license_id')
     zips = [r for r in pkg['resources'] if (r.get('format') or '').upper() == 'ZIP']
-    latest = max(zips, key=lambda r: r.get('last_modified') or r.get('created') or '')
-    log(f"Descargando «{latest['name']}» (actualizado {latest.get('last_modified')}) - licencia: {lic}")
+    zips.sort(key=lambda r: r.get('last_modified') or r.get('created') or '', reverse=True)
+    log('Licencia de los datos:', lic)
+    return ordenar_por_dia(zips)
+
+
+DIAS_SEMANA = {'lunes': 0, 'martes': 1, 'miercoles': 2, 'jueves': 3, 'viernes': 4, 'sabado': 5, 'domingo': 6}
+
+
+def dia_semana(recurso):
+    nombre = unicodedata.normalize('NFD', recurso.get('name') or '')
+    nombre = ''.join(c for c in nombre if unicodedata.category(c) != 'Mn').strip().lower()
+    return DIAS_SEMANA.get(nombre)
+
+
+def ordenar_por_dia(zips):
+    """El primero (el más recientemente publicado) queda primero; los demás, del día anterior hacia atrás. El portal guarda un ZIP por
+    día de la semana, pero a veces vuelve a subir uno viejo, así que la fecha de modificación no sirve para saber cuál es más reciente."""
+    if not zips or dia_semana(zips[0]) is None or any(dia_semana(r) is None for r in zips):
+        return zips
+    w = dia_semana(zips[0])
+    return [zips[0]] + sorted(zips[1:], key=lambda r: (w - dia_semana(r)) % 7)
+
+
+def download(res, dest):
+    log(f"Descargando «{res['name']}» (actualizado {res.get('last_modified')})")
     for attempt in range(3):
         try:
-            with get(latest['url']) as resp, open(dest, 'wb') as f:
+            with get(res['url']) as resp, open(dest, 'wb') as f:
                 shutil.copyfileobj(resp, f, 1 << 20)
             return
         except Exception as e:  # reintenta ante cortes de red
             log('  falló la descarga:', e)
             time.sleep(5 * (attempt + 1))
     sys.exit('No se pudo descargar el archivo de SEPA')
+
+
+def zip_fecha(outer):
+    """Día de los datos de un ZIP diario (viene en el nombre de su carpeta)."""
+    m = re.search(r'(\d{4}-\d{2}-\d{2})/', ' '.join(outer.namelist()))
+    return m.group(1) if m else time.strftime('%Y-%m-%d')
 
 
 # ---- limpieza de nombres ----
@@ -239,8 +278,9 @@ def quantity(cant, unidad):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--zip', help='ZIP de SEPA ya descargado')
-    ap.add_argument('--download', action='store_true', help='baja el ZIP más reciente del portal oficial')
+    ap.add_argument('--zip', action='append', help='ZIP de SEPA ya descargado. Se puede repetir: el primero es el principal y los demás (de días '
+                    'anteriores) solo completan las cadenas que el principal no trae')
+    ap.add_argument('--download', action='store_true', help='baja el ZIP más reciente del portal oficial (y días anteriores si falta alguna cadena)')
     ap.add_argument('--out', required=True, help='carpeta de salida (p. ej. public/data)')
     args = ap.parse_args()
     if not args.zip and not args.download:
@@ -248,16 +288,22 @@ def main():
 
     t0 = time.time()
     tmp = None
-    zip_path = args.zip
     if args.download:
         tmp = tempfile.mkdtemp(prefix='sepa_')
-        zip_path = os.path.join(tmp, 'sepa.zip')
-        download_latest(zip_path)
-    outer = zipfile.ZipFile(zip_path)
-    fecha_m = re.search(r'(\d{4}-\d{2}-\d{2})/', ' '.join(outer.namelist()))
-    fecha = fecha_m.group(1) if fecha_m else time.strftime('%Y-%m-%d')
-    log('Datos de SEPA del', fecha)
-    hoy = datetime.date.fromisoformat(fecha)
+        recursos = list_zips()
+        if not recursos:
+            sys.exit('El catálogo oficial no tiene archivos ZIP')
+        n_fuentes = min(len(recursos), 1 + MAX_DIAS_ATRAS)
+
+        def abrir(i):
+            dest = os.path.join(tmp, f'sepa_{i}.zip')
+            download(recursos[i], dest)
+            return zipfile.ZipFile(dest)
+    else:
+        n_fuentes = len(args.zip)
+
+        def abrir(i):
+            return zipfile.ZipFile(args.zip[i])
 
     order = [c['id'] for c in CHAINS]
     by_cuit = collections.defaultdict(list)
@@ -271,87 +317,114 @@ def main():
     n_suc = collections.Counter(); n_suc_prov = collections.defaultdict(collections.Counter)
     filas = collections.Counter()
     ultima = {}   # cadena -> última actualización que informa su comercio (AAAA-MM-DD)
+    fecha = hoy = None
 
-    for info in outer.infolist():
-        if not info.filename.endswith('.zip') or info.file_size == 0:
-            continue  # SEPA a veces incluye ZIP vacíos
-        try:
-            z = zipfile.ZipFile(io.BytesIO(outer.read(info.filename)))
-            comercio = list(rows(z, 'comercio.csv'))
-        except Exception as e:
-            log('  se omite', info.filename, '->', e)
-            continue
-        if not comercio:
-            continue
-        cuit = comercio[0].get('comercio_cuit', '').strip()
-        chains = by_cuit.get(cuit)
-        if not chains:
-            continue  # comercio que la app no usa
-        bandera_nombre = {r['id_bandera']: r['comercio_bandera_nombre'].strip().lower() for r in comercio}
-
-        def chain_for(band):
-            nombre = bandera_nombre.get(band, '')
-            for c in chains:
-                if 'incluir' in c and not any(k in nombre for k in c['incluir']):
-                    continue
-                if any(k in nombre for k in c.get('excluir', ())):
-                    continue
-                return c['id']
-            return None
-
-        for r in comercio:
-            ch_r = chain_for(r['id_bandera'])
-            dia = r.get('comercio_ultima_actualizacion', '')[:10]
-            if ch_r and dia and dia > ultima.get(ch_r, ''):
-                ultima[ch_r] = dia
-
-        branch_prov = {}
-        for d in rows(z, 'sucursales.csv'):
-            ch = chain_for(d['id_bandera'])
-            if not ch:
-                continue
-            prov = d['sucursales_provincia'].strip()
-            prov = prov if prov in PROVINCIAS else ''
-            branch_prov[(d['id_bandera'], d['id_sucursal'])] = prov
-            n_suc[ch] += 1
-            n_suc_prov[prov][ch] += 1
+    def process(outer, wanted):
+        """Lee los comercios de un ZIP diario (solo los CUIT de `wanted`) y devuelve los CUIT que encontró."""
+        encontrados = set()
+        for info in outer.infolist():
+            if not info.filename.endswith('.zip') or info.file_size == 0:
+                continue  # SEPA a veces incluye ZIP vacíos
             try:
-                lat, lon = round(float(d['sucursales_latitud']), 5), round(float(d['sucursales_longitud']), 5)
-            except ValueError:
-                lat = lon = None
-            if lat is not None and not (-56 < lat < -21 and -74 < lon < -52):
-                lat = lon = None  # coordenadas fuera de Argentina: se descartan
-            if d['sucursales_tipo'].strip().lower() == 'web':
-                continue  # depósito de ventas online: no es un local al que se pueda ir (sus precios sí cuentan)
-            calle = f"{d['sucursales_calle'].strip()} {d['sucursales_numero'].strip()}".strip()
-            branches.append([order.index(ch), d['id_sucursal'], pretty(d['sucursales_nombre']), pretty(calle),
-                             pretty(d['sucursales_localidad']), prov, lat, lon, d['sucursales_tipo'].strip()])
+                z = zipfile.ZipFile(io.BytesIO(outer.read(info.filename)))
+                comercio = list(rows(z, 'comercio.csv'))
+            except Exception as e:
+                log('  se omite', info.filename, '->', e)
+                continue
+            if not comercio:
+                continue
+            cuit = comercio[0].get('comercio_cuit', '').strip()
+            chains = by_cuit.get(cuit)
+            if not chains or cuit not in wanted:
+                continue  # comercio que la app no usa (o que ya se leyó de otro día)
+            bandera_nombre = {r['id_bandera']: r['comercio_bandera_nombre'].strip().lower() for r in comercio}
 
-        for d in rows(z, 'productos.csv'):
-            ch = chain_for(d['id_bandera'])
-            if not ch or d['productos_ean'] != '1':
-                continue
-            ean = d['id_producto'].strip().lstrip('0')  # SEPA rellena con ceros; se unifica el código
-            if not (ean.isdigit() and 8 <= len(ean) <= 14):
-                continue
-            try:
-                p = float(d['productos_precio_lista'])
-            except ValueError:
-                continue
-            if not (0 < p < 1e8):
-                continue
-            prov = branch_prov.get((d['id_bandera'], d['id_sucursal']), '')
-            if not prov:
-                continue
-            filas[ch] += 1
-            prices[(prov, ch, ean)].append(p)
-            for k in ('1', '2'):
-                pr = parse_promo(d['productos_precio_lista'], d.get('productos_precio_unitario_promo' + k), d.get('productos_leyenda_promo' + k), hoy)
-                if pr:
-                    promos[(prov, ch, ean)].append(pr)
-            names[ean][ch][(d['productos_descripcion'].strip(), d['productos_marca'].strip(),
-                            quantity(d['productos_cantidad_presentacion'], d['productos_unidad_medida_presentacion']))] += 1
-        log(f'  {cuit} listo ({time.time() - t0:.0f}s)')
+            def chain_for(band):
+                nombre = bandera_nombre.get(band, '')
+                for c in chains:
+                    if 'incluir' in c and not any(k in nombre for k in c['incluir']):
+                        continue
+                    if any(k in nombre for k in c.get('excluir', ())):
+                        continue
+                    return c['id']
+                return None
+
+            for r in comercio:
+                ch_r = chain_for(r['id_bandera'])
+                dia = r.get('comercio_ultima_actualizacion', '')[:10]
+                if ch_r and dia and dia > ultima.get(ch_r, ''):
+                    ultima[ch_r] = dia
+
+            branch_prov = {}
+            for d in rows(z, 'sucursales.csv'):
+                ch = chain_for(d['id_bandera'])
+                if not ch:
+                    continue
+                prov = d['sucursales_provincia'].strip()
+                prov = prov if prov in PROVINCIAS else ''
+                branch_prov[(d['id_bandera'], d['id_sucursal'])] = prov
+                n_suc[ch] += 1
+                n_suc_prov[prov][ch] += 1
+                try:
+                    lat, lon = round(float(d['sucursales_latitud']), 5), round(float(d['sucursales_longitud']), 5)
+                except ValueError:
+                    lat = lon = None
+                if lat is not None and not (-56 < lat < -21 and -74 < lon < -52):
+                    lat = lon = None  # coordenadas fuera de Argentina: se descartan
+                if d['sucursales_tipo'].strip().lower() == 'web':
+                    continue  # depósito de ventas online: no es un local al que se pueda ir (sus precios sí cuentan)
+                calle = f"{d['sucursales_calle'].strip()} {d['sucursales_numero'].strip()}".strip()
+                branches.append([order.index(ch), d['id_sucursal'], pretty(d['sucursales_nombre']), pretty(calle),
+                                 pretty(d['sucursales_localidad']), prov, lat, lon, d['sucursales_tipo'].strip()])
+
+            for d in rows(z, 'productos.csv'):
+                ch = chain_for(d['id_bandera'])
+                if not ch or d['productos_ean'] != '1':
+                    continue
+                ean = d['id_producto'].strip().lstrip('0')  # SEPA rellena con ceros; se unifica el código
+                if not (ean.isdigit() and 8 <= len(ean) <= 14):
+                    continue
+                try:
+                    p = float(d['productos_precio_lista'])
+                except ValueError:
+                    continue
+                if not (0 < p < 1e8):
+                    continue
+                prov = branch_prov.get((d['id_bandera'], d['id_sucursal']), '')
+                if not prov:
+                    continue
+                filas[ch] += 1
+                prices[(prov, ch, ean)].append(p)
+                for k in ('1', '2'):
+                    pr = parse_promo(d['productos_precio_lista'], d.get('productos_precio_unitario_promo' + k), d.get('productos_leyenda_promo' + k), hoy)
+                    if pr:
+                        promos[(prov, ch, ean)].append(pr)
+                names[ean][ch][(d['productos_descripcion'].strip(), d['productos_marca'].strip(),
+                                quantity(d['productos_cantidad_presentacion'], d['productos_unidad_medida_presentacion']))] += 1
+            encontrados.add(cuit)
+            log(f'  {cuit} listo ({time.time() - t0:.0f}s)')
+
+        return encontrados
+
+    # Cada comercio informa cuando puede: algunos no están en el ZIP de ciertos días (Cooperativa Obrera los martes, Farmacity los jueves,
+    # La Agrícola Regional de domingo a martes). Se lee el ZIP más reciente y, solo si falta alguna cadena, los de los días anteriores.
+    faltan = set(by_cuit)
+    fecha_cuit = {}   # CUIT -> día de los datos de donde salió
+    for i in range(n_fuentes):
+        if not faltan:
+            break
+        outer = abrir(i)
+        dia = zip_fecha(outer)
+        if i == 0:
+            fecha, hoy = dia, datetime.date.fromisoformat(dia)
+            log('Datos de SEPA del', fecha)
+        else:
+            log(f'Completando con el ZIP del {dia}: {len(faltan)} comercio(s) no informaron en el día más reciente')
+        for cuit in process(outer, set(faltan)):
+            faltan.discard(cuit)
+            fecha_cuit[cuit] = dia
+        outer.close()
+    chain_fecha = {c['id']: fecha_cuit.get(c['cuit']) for c in CHAINS}
 
     # ---- validaciones ----
     seen = {ch: set() for ch in order}
@@ -438,7 +511,8 @@ def main():
         'v': 1, 'fecha': fecha, 'generado': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         'fuente': 'Precios Claros – Base SEPA. Secretaría de Comercio de la Nación (datos.produccion.gob.ar)',
         'licencia': 'Creative Commons Atribución 4.0', 'productos': len(eans), 'promos': n_promos,
-        'cadenas': [dict({k: c[k] for k in ('id', 'sigla', 'name', 'color', 'web')}, **{k: True for k in ('optativa', 'regional') if c.get(k)})
+        'cadenas': [dict({k: c[k] for k in ('id', 'sigla', 'name', 'color', 'web')}, **{k: True for k in ('optativa', 'regional') if c.get(k)},
+                         **({'fecha': chain_fecha[c['id']]} if chain_fecha.get(c['id']) and chain_fecha[c['id']] != fecha else {}))
                     for c in CHAINS if c['id'] in idx],
         'provincias': {p: {'nombre': PROVINCIAS[p], 'productos': len(tables[p]),
                            'sucursales': {ch: n for ch, n in n_suc_prov[p].items() if ch in idx}} for p in sorted(tables)},
