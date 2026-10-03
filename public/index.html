@@ -12,6 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Gondolar">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="canonical" href="https://gondolar.com.ar/">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Gondolar · Mirá todas las góndolas en una">
   <meta property="og:description" content="Compará precios de supermercados argentinos y mirá dónde conviene comprar cada cosa, con el costo del viaje incluido.">
@@ -49,7 +50,14 @@
   <div class="app no-print">
     <div id="banner" class="banner" role="status" hidden></div>
     <div class="layout">
-      <main id="view"></main>
+      <main id="view">
+        <!-- Texto para buscadores y para quien no tenga JavaScript; la app lo reemplaza al arrancar. -->
+        <section id="v-intro">
+          <h1>Gondolar: compará precios de supermercados en Argentina</h1>
+          <p>Buscá un producto y mirá cuánto sale en Carrefour, Coto, Día, Jumbo, Disco, Vea, Changomás y otras cadenas de tu provincia. Armá tu lista de compras y Gondolar te dice dónde conviene comprar cada cosa, con el costo del viaje incluido.</p>
+          <p>Los precios son datos abiertos oficiales de Precios Claros (Base SEPA) y se actualizan todos los días. Proyecto independiente y sin fines de lucro.</p>
+        </section>
+      </main>
       <aside class="side" id="side" aria-label="Tu lista"></aside>
     </div>
     <footer class="site-foot">

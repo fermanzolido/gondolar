@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://gondolar.com.ar/sitemap.xml

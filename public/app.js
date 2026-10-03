@@ -1017,6 +1017,7 @@
 
   // ---------- inicio ----------
   (async function init() {
+    $('#view').replaceChildren();
     ['search', 'plan', 'trip'].forEach((v) => { const s = document.createElement('section'); s.id = 'v-' + v; s.hidden = true; $('#view').appendChild(s); });
     try { state.data = await Data.meta(); }
     catch (e) {
